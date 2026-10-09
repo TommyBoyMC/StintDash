@@ -7,11 +7,13 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QSizePolicy,
+    QStackedWidget,
     QStyle,
     QVBoxLayout,
     QWidget,
 )
 
+from stintdash.race_history_page import RaceHistoryPage
 from stintdash.widgets import DashboardCard, MetricRow, StaticBarChart, StatPill
 
 
@@ -31,7 +33,15 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
 
         layout.addWidget(self._build_top_bar())
-        layout.addWidget(self._build_dashboard())
+
+        self.pages = QStackedWidget()
+        self.dashboard_page = self._build_dashboard()
+        self.race_history_page = RaceHistoryPage()
+        self.pages.addWidget(self.dashboard_page)
+        self.pages.addWidget(self.race_history_page)
+
+        layout.addWidget(self.pages)
+        self._set_active_page(0)
 
     def _build_top_bar(self) -> QFrame:
         top_bar = QFrame()
@@ -65,12 +75,17 @@ class MainWindow(QMainWindow):
         nav_layout = QHBoxLayout()
         nav_layout.setSpacing(8)
 
-        dashboard = QPushButton("Dashboard")
-        dashboard.setObjectName("NavActive")
-        dashboard.setCursor(Qt.CursorShape.ArrowCursor)
-        nav_layout.addWidget(dashboard)
+        self.dashboard_nav = QPushButton("Dashboard")
+        self.dashboard_nav.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.dashboard_nav.clicked.connect(lambda: self._set_active_page(0))
+        nav_layout.addWidget(self.dashboard_nav)
 
-        for label in ("Race History", "Championship", "Statistics"):
+        self.race_history_nav = QPushButton("Race History")
+        self.race_history_nav.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.race_history_nav.clicked.connect(lambda: self._set_active_page(1))
+        nav_layout.addWidget(self.race_history_nav)
+
+        for label in ("Championship", "Statistics"):
             button = QPushButton(label)
             button.setObjectName("NavInactive")
             button.setEnabled(False)
@@ -113,6 +128,19 @@ class MainWindow(QMainWindow):
         layout.addWidget(profile)
 
         return top_bar
+
+    def _set_active_page(self, page_index: int):
+        self.pages.setCurrentIndex(page_index)
+
+        active_button = self.dashboard_nav if page_index == 0 else self.race_history_nav
+        inactive_button = self.race_history_nav if page_index == 0 else self.dashboard_nav
+
+        active_button.setObjectName("NavActive")
+        inactive_button.setObjectName("NavInactive")
+
+        for button in (active_button, inactive_button):
+            button.style().unpolish(button)
+            button.style().polish(button)
 
     def _build_dashboard(self) -> QWidget:
         dashboard = QWidget()

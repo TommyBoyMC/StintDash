@@ -17,6 +17,7 @@ QFrame#TopBar {
 QFrame#LogoMark,
 QFrame#ProfileAvatar {
     background: #e21b2f;
+    border: 1px solid #ff4052;
     border-radius: 18px;
 }
 
@@ -51,6 +52,18 @@ QPushButton#NavInactive {
     padding: 9px 14px;
     font-size: 13px;
     font-weight: 700;
+}
+
+QPushButton#NavInactive:hover {
+    background: #101c2c;
+    color: #dce6ef;
+    border: 1px solid #1f2f43;
+}
+
+QPushButton#NavInactive:disabled {
+    background: transparent;
+    color: #4f5e70;
+    border: 1px solid transparent;
 }
 
 QPushButton#SettingsButton {
@@ -164,5 +177,71 @@ QFrame#StatPill {
 
 QFrame#Divider {
     background: #223247;
+}
+
+QTableView#RaceHistoryTable {
+    background: #0d1826;
+    alternate-background-color: #0d1826;
+    border: 1px solid #203044;
+    border-radius: 10px;
+    gridline-color: transparent;
+    color: #eef3f8;
+    selection-background-color: #17263a;
+    selection-color: #ffffff;
+    outline: 0;
+}
+
+QTableView#RaceHistoryTable::item {
+    border: 0px;
+    padding: 0 12px;
+}
+
+QTableView#RaceHistoryTable::item:hover {
+    background: #121f31;
+}
+
+QTableView#RaceHistoryTable::item:selected {
+    background: #17263a;
+}
+
+QHeaderView#RaceHistoryTableHeader {
+    background: #0f1b2b;
+}
+
+QHeaderView::section {
+    background: #0f1b2b;
+    color: #aeb9c8;
+    border: 0px;
+    border-bottom: 1px solid #7d1f2b;
+    padding: 12px 12px;
+    font-size: 11px;
+    font-weight: 900;
+}
+
+QScrollBar:vertical {
+    background: #0a1421;
+    width: 12px;
+    margin: 6px 3px 6px 3px;
+    border-radius: 5px;
+}
+
+QScrollBar::handle:vertical {
+    background: #27384e;
+    min-height: 44px;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #e21b2f;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: transparent;
 }
 """
