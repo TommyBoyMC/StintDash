@@ -1,0 +1,1 @@
+"""StintDash desktop application package."""
