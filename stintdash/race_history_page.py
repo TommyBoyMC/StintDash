@@ -1,8 +1,11 @@
-from PySide6.QtCore import QEvent, QTimer, Qt
+from pathlib import Path
+
+from PySide6.QtCore import QEvent, QSettings, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
+    QFileDialog,
     QHeaderView,
     QHBoxLayout,
     QLabel,
@@ -15,45 +18,22 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from stintdash.race_data import create_sample_race_results
+from stintdash.lmu_results import DEFAULT_PLAYER_NAME, discover_results_directory, load_lmu_races
+from stintdash.race_data import RaceResult
 from stintdash.race_history_model import RaceHistoryTableModel
 
 
-TRACK_FILTERS = [
-    "All Tracks",
-    "Bahrain",
-    "Barcelona",
-    "Le Mans",
-    "Paul Ricard",
-    "COTA",
-    "Daytona",
-    "Fuji",
-    "Imola",
-    "Interlagos",
-    "Lusail",
-    "Road Atlanta",
-    "Monza",
-    "Portimao",
-    "Sebring",
-    "Silverstone",
-    "Spa-Francorchamps",
-    "Longbeach",
-    "Laguna Seca",
-]
+class RaceScanThread(QThread):
+    races_loaded = Signal(list, str)
 
-CAR_FILTERS = [
-    "All Cars",
-    "Ford",
-    "McLaren",
-    "Mercedes",
-    "BMW",
-    "Aston Martin",
-    "Corvette",
-    "Ferrari",
-    "Lamborghini",
-    "Lexus",
-    "Porsche",
-]
+    def __init__(self, results_dir: Path, player_name: str):
+        super().__init__()
+        self.results_dir = results_dir
+        self.player_name = player_name
+
+    def run(self):
+        races = load_lmu_races(self.results_dir, self.player_name)
+        self.races_loaded.emit(races, str(self.results_dir))
 
 
 class RaceHistoryDelegate(QStyledItemDelegate):
@@ -84,7 +64,11 @@ class RaceHistoryDelegate(QStyledItemDelegate):
 class RaceHistoryPage(QWidget):
     def __init__(self):
         super().__init__()
-        self.model = RaceHistoryTableModel(create_sample_race_results())
+        self.settings = QSettings("StintDash", "StintDash")
+        self.player_name = self.settings.value("playerName", DEFAULT_PLAYER_NAME, str)
+        self.results_dir: Path | None = None
+        self._scan_thread: RaceScanThread | None = None
+        self.model = RaceHistoryTableModel([])
         self._load_pending = False
         self._hovered_row = -1
 
@@ -148,6 +132,8 @@ class RaceHistoryPage(QWidget):
 
         layout.addWidget(self.table, stretch=1)
         layout.addWidget(self.empty_label, stretch=1)
+        self._update_empty_state()
+        self.refresh_races()
 
     def _build_filters(self) -> QWidget:
         filter_bar = QWidget()
@@ -156,9 +142,9 @@ class RaceHistoryPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        self.track_filter = self._create_filter_combo(TRACK_FILTERS)
-        self.car_filter = self._create_filter_combo(CAR_FILTERS)
-        self.position_filter = self._create_filter_combo(self._position_filter_options())
+        self.track_filter = self._create_filter_combo(["All Tracks"])
+        self.car_filter = self._create_filter_combo(["All Cars"])
+        self.position_filter = self._create_filter_combo(["All Positions"])
 
         label = QLabel("Filters:")
         label.setObjectName("FilterLabel")
@@ -206,10 +192,92 @@ class RaceHistoryPage(QWidget):
 
     def _position_filter_options(self) -> list[str]:
         positions = sorted(
-            {race.finish_position for race in self.model.all_races},
+            {race.finish_position for race in self.model.all_races if race.finish_position != "-"},
             key=lambda position: int(position.removeprefix("P")),
         )
         return ["All Positions", *positions]
+
+    def refresh_races(self):
+        if self._scan_thread is not None and self._scan_thread.isRunning():
+            return
+
+        results_dir = self._results_directory()
+        if results_dir is None:
+            self.model.set_races([])
+            self._refresh_filter_options()
+            self._update_empty_state()
+            return
+
+        self._scan_thread = RaceScanThread(results_dir, self.player_name)
+        self._scan_thread.races_loaded.connect(self._on_races_loaded)
+        self._scan_thread.finished.connect(self._scan_thread.deleteLater)
+        self._scan_thread.finished.connect(self._clear_scan_thread)
+        self._scan_thread.start()
+
+    def _results_directory(self) -> Path | None:
+        if self.results_dir and self.results_dir.is_dir():
+            return self.results_dir
+
+        saved_dir = self.settings.value("resultsDirectory", "", str)
+        if saved_dir:
+            saved_path = Path(saved_dir)
+            if saved_path.is_dir():
+                self.results_dir = saved_path
+                return saved_path
+
+        discovered_dir = discover_results_directory()
+        if discovered_dir:
+            self.results_dir = discovered_dir
+            self.settings.setValue("resultsDirectory", str(discovered_dir))
+            return discovered_dir
+
+        selected_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Select LMU Results Folder",
+            str(Path.home()),
+        )
+        if not selected_dir:
+            return None
+
+        self.results_dir = Path(selected_dir)
+        self.settings.setValue("resultsDirectory", selected_dir)
+        return self.results_dir
+
+    def _on_races_loaded(self, races: list[RaceResult], results_dir: str):
+        self.results_dir = Path(results_dir)
+        self.settings.setValue("resultsDirectory", results_dir)
+        self.model.set_races(races)
+        self._refresh_filter_options()
+        self.table.verticalScrollBar().setValue(0)
+        self._load_pending = False
+        self._set_hovered_row(-1)
+        self._update_empty_state()
+
+    def _refresh_filter_options(self):
+        self._set_combo_items(
+            self.track_filter,
+            ["All Tracks", *sorted({race.track for race in self.model.all_races if race.track != "-"})],
+            "All Tracks",
+        )
+        self._set_combo_items(
+            self.car_filter,
+            ["All Cars", *sorted({race.car_manufacturer for race in self.model.all_races if race.car_manufacturer != "-"})],
+            "All Cars",
+        )
+        self._set_combo_items(self.position_filter, self._position_filter_options(), "All Positions")
+
+    def _set_combo_items(self, combo: QComboBox, items: list[str], fallback: str):
+        current = combo.currentText()
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItems(items)
+        combo.setCurrentText(current if current in items else fallback)
+        combo.blockSignals(False)
+        self._set_filter_popup_height(combo)
+        self._apply_filters()
+
+    def _clear_scan_thread(self):
+        self._scan_thread = None
 
     def _apply_filters(self):
         self.model.set_filters(

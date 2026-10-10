@@ -123,6 +123,8 @@ class MainWindow(QMainWindow):
 
     def _set_active_page(self, page_index: int):
         self.pages.setCurrentIndex(page_index)
+        if page_index == 1:
+            self.race_history_page.refresh_races()
 
         active_button = self.dashboard_nav if page_index == 0 else self.race_history_nav
         inactive_button = self.race_history_nav if page_index == 0 else self.dashboard_nav

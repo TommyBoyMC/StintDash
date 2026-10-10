@@ -49,7 +49,7 @@ class RaceHistoryTableModel(QAbstractTableModel):
         return len(self.HEADERS)
 
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
-        if not index.isValid():
+        if not index.isValid() or index.row() >= len(self._filtered_races):
             return None
 
         race = self._filtered_races[index.row()]
@@ -111,6 +111,16 @@ class RaceHistoryTableModel(QAbstractTableModel):
     def all_races(self) -> list[RaceResult]:
         return self._all_races
 
+    def set_races(self, races: list[RaceResult]):
+        self.beginResetModel()
+        self._all_races = races
+        self._filtered_races = [
+            race for race in self._all_races if self._matches_filters(race)
+        ]
+        self._visible_rows = min(self.INITIAL_ROWS, len(self._filtered_races))
+        self._is_loading = False
+        self.endResetModel()
+
     def set_filters(self, track: str, car: str, position: str):
         self.beginResetModel()
         self._track_filter = track
@@ -126,7 +136,11 @@ class RaceHistoryTableModel(QAbstractTableModel):
         if self._track_filter != "All Tracks" and race.track != self._track_filter:
             return False
 
-        if self._car_filter != "All Cars" and self._car_filter.lower() not in race.car.lower():
+        if (
+            self._car_filter != "All Cars"
+            and self._car_filter.lower() not in race.car.lower()
+            and self._car_filter.lower() != race.car_manufacturer.lower()
+        ):
             return False
 
         if self._position_filter != "All Positions" and race.finish_position != self._position_filter:
