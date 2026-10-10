@@ -11,31 +11,43 @@ class RaceResult:
     start_position: str
     finish_position: str
     best_lap: str
-    mode: str
 
 
 TRACK_LAPS = {
-    "Sebring": (118, 742),
-    "Spa-Francorchamps": (118, 427),
-    "Le Mans": (230, 512),
-    "Monza": (106, 833),
-    "Imola": (142, 186),
-    "Portimao": (139, 944),
-    "Fuji": (129, 381),
     "Bahrain": (154, 706),
+    "Barcelona": (103, 318),
+    "Le Mans": (230, 512),
+    "Paul Ricard": (139, 125),
+    "COTA": (124, 856),
+    "Daytona": (105, 972),
+    "Fuji": (129, 381),
+    "Imola": (142, 186),
+    "Interlagos": (130, 614),
+    "Lusail": (112, 406),
+    "Road Atlanta": (78, 934),
+    "Monza": (106, 833),
+    "Portimao": (139, 944),
+    "Sebring": (118, 742),
+    "Silverstone": (120, 291),
+    "Spa-Francorchamps": (118, 427),
+    "Longbeach": (79, 508),
+    "Laguna Seca": (83, 221),
 }
 
 CARS = [
-    "Corvette Z06 GT3.R",
-    "Ferrari 296 LMGT3",
-    "Porsche 911 GT3 R",
+    "Ford Mustang LMGT3",
+    "McLaren 720S LMGT3 Evo",
+    "Mercedes-AMG LMGT3",
     "BMW M4 LMGT3",
     "Aston Martin Vantage AMR LMGT3",
+    "Corvette Z06 GT3.R",
+    "Ferrari 296 LMGT3",
+    "Lamborghini Huracan LMGT3 Evo2",
     "Lexus RC F LMGT3",
+    "Porsche 911 GT3 R",
 ]
 
 RACE_TYPES = ["Daily Race", "Weekly Race", "Race Weekend"]
-MODES = ["Online", "Offline"]
 
 
 def _lap_time(track: str, index: int) -> str:
@@ -56,7 +68,6 @@ def create_sample_race_results(total: int = 112) -> list[RaceResult]:
         track = tracks[index % len(tracks)]
         car = CARS[(index * 2 + index // 5) % len(CARS)]
         race_type = RACE_TYPES[index % len(RACE_TYPES)]
-        mode = MODES[(index // 3) % len(MODES)]
         race_date = start_date - timedelta(days=index // 2)
 
         start_position = ((index * 5) % 24) + 1
@@ -73,7 +84,6 @@ def create_sample_race_results(total: int = 112) -> list[RaceResult]:
                 start_position=f"P{start_position}",
                 finish_position=f"P{finish_position}",
                 best_lap=_lap_time(track, index),
-                mode=mode,
             )
         )
 

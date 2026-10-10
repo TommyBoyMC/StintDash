@@ -34,6 +34,10 @@ QLabel#AvatarLetters {
     font-weight: 900;
 }
 
+QWidget#ProfileAvatar {
+    background: transparent;
+}
+
 QPushButton#NavActive {
     background: #e21b2f;
     color: #ffffff;
@@ -177,6 +181,83 @@ QFrame#StatPill {
 
 QFrame#Divider {
     background: #223247;
+}
+
+QFrame#FilterBar {
+    background: #0d1826;
+    border: 1px solid #203044;
+    border-radius: 10px;
+}
+
+QLabel#FilterLabel {
+    color: #7d8ca0;
+    font-size: 10px;
+    font-weight: 900;
+}
+
+QComboBox#RaceFilterCombo {
+    background: #101c2c;
+    border: 1px solid #26384e;
+    border-radius: 8px;
+    color: #eef3f8;
+    padding: 8px 34px 8px 12px;
+    min-height: 18px;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+QComboBox#RaceFilterCombo:hover {
+    border: 1px solid #7d1f2b;
+}
+
+QComboBox#RaceFilterCombo::drop-down {
+    border: 0px;
+    width: 28px;
+}
+
+QComboBox#RaceFilterCombo::down-arrow {
+    image: none;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid #e21b2f;
+    width: 0px;
+    height: 0px;
+    margin-right: 10px;
+}
+
+QComboBox#RaceFilterCombo QAbstractItemView {
+    background: #0f1b2b;
+    border: 1px solid #26384e;
+    border-radius: 8px;
+    color: #eef3f8;
+    selection-background-color: #7d1f2b;
+    selection-color: #ffffff;
+    outline: 0;
+    padding: 4px;
+}
+
+QComboBox#RaceFilterCombo QAbstractItemView::item {
+    min-height: 30px;
+    padding: 7px 10px;
+    border-radius: 6px;
+}
+
+QComboBox#RaceFilterCombo QAbstractItemView::item:hover {
+    background: #17263a;
+}
+
+QComboBox#RaceFilterCombo QAbstractItemView::item:selected {
+    background: #7d1f2b;
+    color: #ffffff;
+}
+
+QLabel#NoRacesLabel {
+    background: #0d1826;
+    border: 1px solid #203044;
+    border-radius: 10px;
+    color: #8290a1;
+    font-size: 15px;
+    font-weight: 800;
 }
 
 QTableView#RaceHistoryTable {

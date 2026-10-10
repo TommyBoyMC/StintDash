@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 
@@ -125,3 +125,51 @@ class StaticBarChart(QWidget):
                 Qt.AlignmentFlag.AlignCenter,
                 self.labels[index],
             )
+
+
+class CircularAvatar(QWidget):
+    def __init__(self, fallback_text: str, size: int = 32):
+        super().__init__()
+        self._pixmap: QPixmap | None = None
+        self._fallback_text = fallback_text
+        self.setObjectName("ProfileAvatar")
+        self.setFixedSize(size, size)
+
+    def set_pixmap(self, pixmap: QPixmap):
+        self._pixmap = pixmap
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+
+        side = min(self.width(), self.height())
+        rect_x = (self.width() - side) / 2
+        rect_y = (self.height() - side) / 2
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        path = QPainterPath()
+        path.addEllipse(rect_x, rect_y, side, side)
+        painter.setClipPath(path)
+
+        if self._pixmap and not self._pixmap.isNull():
+            source_side = min(self._pixmap.width(), self._pixmap.height())
+            source_x = (self._pixmap.width() - source_side) // 2
+            source_y = (self._pixmap.height() - source_side) // 2
+            cropped = self._pixmap.copy(source_x, source_y, source_side, source_side)
+            painter.drawPixmap(0, 0, int(side), int(side), cropped)
+        else:
+            painter.fillPath(path, QColor("#e21b2f"))
+            painter.setPen(QColor("#ffffff"))
+            font = painter.font()
+            font.setBold(True)
+            font.setPointSize(10)
+            painter.setFont(font)
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._fallback_text)
+
+        painter.setClipping(False)
+        pen = QPen(QColor("#ff4052"))
+        pen.setWidth(1)
+        painter.setPen(pen)
+        painter.drawEllipse(int(rect_x), int(rect_y), int(side) - 1, int(side) - 1)

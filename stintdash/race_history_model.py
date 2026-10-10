@@ -13,7 +13,6 @@ class RaceHistoryTableModel(QAbstractTableModel):
         "Start Position",
         "Finish Position",
         "Best Lap",
-        "Mode",
     ]
 
     FIELDS = [
@@ -24,7 +23,6 @@ class RaceHistoryTableModel(QAbstractTableModel):
         "start_position",
         "finish_position",
         "best_lap",
-        "mode",
     ]
 
     INITIAL_ROWS = 25
@@ -32,9 +30,13 @@ class RaceHistoryTableModel(QAbstractTableModel):
 
     def __init__(self, races: list[RaceResult]):
         super().__init__()
-        self._races = races
-        self._visible_rows = min(self.INITIAL_ROWS, len(races))
+        self._all_races = races
+        self._filtered_races = list(races)
+        self._visible_rows = min(self.INITIAL_ROWS, len(self._filtered_races))
         self._is_loading = False
+        self._track_filter = "All Tracks"
+        self._car_filter = "All Cars"
+        self._position_filter = "All Positions"
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         if parent.isValid():
@@ -50,7 +52,7 @@ class RaceHistoryTableModel(QAbstractTableModel):
         if not index.isValid():
             return None
 
-        race = self._races[index.row()]
+        race = self._filtered_races[index.row()]
         field = self.FIELDS[index.column()]
         value = getattr(race, field)
 
@@ -58,16 +60,13 @@ class RaceHistoryTableModel(QAbstractTableModel):
             return value
 
         if role == Qt.ItemDataRole.TextAlignmentRole:
-            if field in {"start_position", "finish_position", "best_lap", "mode"}:
+            if field in {"start_position", "finish_position", "best_lap"}:
                 return Qt.AlignmentFlag.AlignCenter
             return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
 
         if role == Qt.ItemDataRole.ForegroundRole and field == "finish_position":
             if self._position_number(value) <= 3:
                 return QColor("#ff5a66")
-
-        if role == Qt.ItemDataRole.ForegroundRole and field == "mode":
-            return QColor("#dce6ef" if value == "Online" else "#8c9aab")
 
         return None
 
@@ -83,7 +82,7 @@ class RaceHistoryTableModel(QAbstractTableModel):
         return None
 
     def can_load_more(self) -> bool:
-        return self._visible_rows < len(self._races) and not self._is_loading
+        return self._visible_rows < len(self._filtered_races) and not self._is_loading
 
     def load_more(self) -> int:
         if not self.can_load_more():
@@ -91,7 +90,7 @@ class RaceHistoryTableModel(QAbstractTableModel):
 
         self._is_loading = True
         current_count = self._visible_rows
-        next_count = min(current_count + self.BATCH_SIZE, len(self._races))
+        next_count = min(current_count + self.BATCH_SIZE, len(self._filtered_races))
 
         self.beginInsertRows(QModelIndex(), current_count, next_count - 1)
         self._visible_rows = next_count
@@ -103,6 +102,37 @@ class RaceHistoryTableModel(QAbstractTableModel):
     @property
     def visible_rows(self) -> int:
         return self._visible_rows
+
+    @property
+    def total_matching_rows(self) -> int:
+        return len(self._filtered_races)
+
+    @property
+    def all_races(self) -> list[RaceResult]:
+        return self._all_races
+
+    def set_filters(self, track: str, car: str, position: str):
+        self.beginResetModel()
+        self._track_filter = track
+        self._car_filter = car
+        self._position_filter = position
+        self._filtered_races = [
+            race for race in self._all_races if self._matches_filters(race)
+        ]
+        self._visible_rows = min(self.INITIAL_ROWS, len(self._filtered_races))
+        self.endResetModel()
+
+    def _matches_filters(self, race: RaceResult) -> bool:
+        if self._track_filter != "All Tracks" and race.track != self._track_filter:
+            return False
+
+        if self._car_filter != "All Cars" and self._car_filter.lower() not in race.car.lower():
+            return False
+
+        if self._position_filter != "All Positions" and race.finish_position != self._position_filter:
+            return False
+
+        return True
 
     @staticmethod
     def _position_number(position: str) -> int:

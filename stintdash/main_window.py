@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from stintdash.race_history_page import RaceHistoryPage
-from stintdash.widgets import DashboardCard, MetricRow, StaticBarChart, StatPill
+from stintdash.widgets import CircularAvatar, DashboardCard, MetricRow, StaticBarChart, StatPill
 
 
 class MainWindow(QMainWindow):
@@ -110,15 +110,7 @@ class MainWindow(QMainWindow):
         profile_layout.setContentsMargins(5, 4, 14, 4)
         profile_layout.setSpacing(9)
 
-        avatar = QFrame()
-        avatar.setObjectName("ProfileAvatar")
-        avatar.setFixedSize(32, 32)
-        avatar_layout = QHBoxLayout(avatar)
-        avatar_layout.setContentsMargins(0, 0, 0, 0)
-        avatar_letters = QLabel("T")
-        avatar_letters.setObjectName("AvatarLetters")
-        avatar_letters.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        avatar_layout.addWidget(avatar_letters)
+        avatar = CircularAvatar("T", 32)
 
         username = QLabel("Tom Ridder")
         username.setObjectName("Username")
