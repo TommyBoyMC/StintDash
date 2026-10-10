@@ -37,6 +37,7 @@ class RaceHistoryTableModel(QAbstractTableModel):
         self._track_filter = "All Tracks"
         self._car_filter = "All Cars"
         self._position_filter = "All Positions"
+        self._race_type_filter = "All Types"
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         if parent.isValid():
@@ -111,6 +112,11 @@ class RaceHistoryTableModel(QAbstractTableModel):
     def all_races(self) -> list[RaceResult]:
         return self._all_races
 
+    def race_at(self, row: int) -> RaceResult | None:
+        if 0 <= row < min(self._visible_rows, len(self._filtered_races)):
+            return self._filtered_races[row]
+        return None
+
     def set_races(self, races: list[RaceResult]):
         self.beginResetModel()
         self._all_races = races
@@ -121,11 +127,12 @@ class RaceHistoryTableModel(QAbstractTableModel):
         self._is_loading = False
         self.endResetModel()
 
-    def set_filters(self, track: str, car: str, position: str):
+    def set_filters(self, track: str, car: str, position: str, race_type: str):
         self.beginResetModel()
         self._track_filter = track
         self._car_filter = car
         self._position_filter = position
+        self._race_type_filter = race_type
         self._filtered_races = [
             race for race in self._all_races if self._matches_filters(race)
         ]
@@ -144,6 +151,9 @@ class RaceHistoryTableModel(QAbstractTableModel):
             return False
 
         if self._position_filter != "All Positions" and race.finish_position != self._position_filter:
+            return False
+
+        if self._race_type_filter != "All Types" and race.race_type != self._race_type_filter:
             return False
 
         return True

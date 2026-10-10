@@ -62,6 +62,8 @@ class RaceHistoryDelegate(QStyledItemDelegate):
 
 
 class RaceHistoryPage(QWidget):
+    race_selected = Signal(object)
+
     def __init__(self):
         super().__init__()
         self.settings = QSettings("StintDash", "StintDash")
@@ -124,6 +126,7 @@ class RaceHistoryPage(QWidget):
 
         self.table.verticalHeader().setDefaultSectionSize(48)
         self.table.verticalScrollBar().valueChanged.connect(self._maybe_load_more)
+        self.table.clicked.connect(self._open_selected_race)
 
         self.empty_label = QLabel("No races found.")
         self.empty_label.setObjectName("NoRacesLabel")
@@ -145,6 +148,7 @@ class RaceHistoryPage(QWidget):
         self.track_filter = self._create_filter_combo(["All Tracks"])
         self.car_filter = self._create_filter_combo(["All Cars"])
         self.position_filter = self._create_filter_combo(["All Positions"])
+        self.race_type_filter = self._create_filter_combo(["All Types", "Multiplayer", "Race Weekend"])
 
         label = QLabel("Filters:")
         label.setObjectName("FilterLabel")
@@ -154,10 +158,12 @@ class RaceHistoryPage(QWidget):
         layout.addWidget(self.track_filter, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self.car_filter, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self.position_filter, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.race_type_filter, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.track_filter.currentTextChanged.connect(self._apply_filters)
         self.car_filter.currentTextChanged.connect(self._apply_filters)
         self.position_filter.currentTextChanged.connect(self._apply_filters)
+        self.race_type_filter.currentTextChanged.connect(self._apply_filters)
 
         return filter_bar
 
@@ -166,7 +172,7 @@ class RaceHistoryPage(QWidget):
         combo.setObjectName("RaceFilterCombo")
         combo.addItems(items)
         combo.setMaxVisibleItems(5)
-        combo.setMinimumWidth(190)
+        combo.setMinimumWidth(160)
         combo.setView(QListView())
         combo.view().setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         combo.view().setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
@@ -265,6 +271,11 @@ class RaceHistoryPage(QWidget):
             "All Cars",
         )
         self._set_combo_items(self.position_filter, self._position_filter_options(), "All Positions")
+        self._set_combo_items(
+            self.race_type_filter,
+            ["All Types", "Multiplayer", "Race Weekend"],
+            "All Types",
+        )
 
     def _set_combo_items(self, combo: QComboBox, items: list[str], fallback: str):
         current = combo.currentText()
@@ -284,6 +295,7 @@ class RaceHistoryPage(QWidget):
             self.track_filter.currentText(),
             self.car_filter.currentText(),
             self.position_filter.currentText(),
+            self.race_type_filter.currentText(),
         )
         self.table.verticalScrollBar().setValue(0)
         self._load_pending = False
@@ -309,6 +321,11 @@ class RaceHistoryPage(QWidget):
     def _append_next_batch(self):
         self.model.load_more()
         self._load_pending = False
+
+    def _open_selected_race(self, index):
+        race = self.model.race_at(index.row())
+        if race is not None:
+            self.race_selected.emit(race)
 
     def eventFilter(self, watched, event):
         if watched == self.table.viewport():

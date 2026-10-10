@@ -80,6 +80,7 @@ def parse_lmu_result_file(file_path: Path, player_name: str = DEFAULT_PLAYER_NAM
         car=player_driver.car_type or "-",
         car_manufacturer=_car_manufacturer(player_driver.car_type),
         race_type=race_type,
+        race_duration=_format_race_duration(_text(race_node, "Minutes") or _text(race_results, "RaceTime")),
         start_position=_format_position(player_driver.grid_position),
         finish_position=_format_position(player_driver.position),
         best_lap=_format_lap_time(player_driver.best_lap_time),
@@ -141,8 +142,13 @@ def _parse_driver(driver_node: ET.Element) -> DriverResult:
         if child.tag != "Lap"
     }
     laps = tuple(_parse_lap(lap_node) for lap_node in driver_node.findall("Lap"))
+    driver_identity = "|".join(
+        raw_values.get(field, "")
+        for field in ("Name", "CarType", "CarNumber", "TeamName")
+    )
 
     return DriverResult(
+        driver_id=hashlib.sha1(driver_identity.encode("utf-8", errors="ignore")).hexdigest(),
         name=raw_values.get("Name", ""),
         team_name=raw_values.get("TeamName", ""),
         car_type=raw_values.get("CarType", ""),
@@ -153,6 +159,7 @@ def _parse_driver(driver_node: ET.Element) -> DriverResult:
         class_grid_position=raw_values.get("ClassGridPos", ""),
         class_position=raw_values.get("ClassPosition", ""),
         best_lap_time=raw_values.get("BestLapTime", ""),
+        finish_time=raw_values.get("FinishTime", ""),
         laps_completed=raw_values.get("Laps", ""),
         pitstops=raw_values.get("Pitstops", ""),
         finish_status=raw_values.get("FinishStatus", ""),
@@ -266,3 +273,18 @@ def _format_lap_time(value: str) -> str:
     minutes, remainder = divmod(total_milliseconds, 60_000)
     whole_seconds, milliseconds = divmod(remainder, 1000)
     return f"{minutes}:{whole_seconds:02d}.{milliseconds:03d}"
+
+
+def _format_race_duration(value: str) -> str:
+    try:
+        minutes = float(value)
+    except (TypeError, ValueError):
+        return "-"
+
+    if minutes <= 0:
+        return "-"
+
+    if minutes.is_integer():
+        return f"{int(minutes)} minutes"
+
+    return f"{minutes:g} minutes"

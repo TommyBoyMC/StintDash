@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stintdash.race_details_page import RaceDetailsPage
 from stintdash.race_history_page import RaceHistoryPage
 from stintdash.widgets import CircularAvatar, DashboardCard, MetricRow, StaticBarChart, StatPill
 
@@ -37,8 +38,12 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         self.dashboard_page = self._build_dashboard()
         self.race_history_page = RaceHistoryPage()
+        self.race_details_page = RaceDetailsPage(self.race_history_page.player_name)
+        self.race_history_page.race_selected.connect(self._open_race_details)
+        self.race_details_page.back_requested.connect(self._return_to_race_history)
         self.pages.addWidget(self.dashboard_page)
         self.pages.addWidget(self.race_history_page)
+        self.pages.addWidget(self.race_details_page)
 
         layout.addWidget(self.pages)
         self._set_active_page(0)
@@ -126,8 +131,20 @@ class MainWindow(QMainWindow):
         if page_index == 1:
             self.race_history_page.refresh_races()
 
-        active_button = self.dashboard_nav if page_index == 0 else self.race_history_nav
-        inactive_button = self.race_history_nav if page_index == 0 else self.dashboard_nav
+        self._sync_nav_buttons(0 if page_index == 0 else 1)
+
+    def _open_race_details(self, race):
+        self.race_details_page.set_race(race)
+        self.pages.setCurrentWidget(self.race_details_page)
+        self._sync_nav_buttons(1)
+
+    def _return_to_race_history(self):
+        self.pages.setCurrentWidget(self.race_history_page)
+        self._sync_nav_buttons(1)
+
+    def _sync_nav_buttons(self, active_page_index: int):
+        active_button = self.dashboard_nav if active_page_index == 0 else self.race_history_nav
+        inactive_button = self.race_history_nav if active_page_index == 0 else self.dashboard_nav
 
         active_button.setObjectName("NavActive")
         inactive_button.setObjectName("NavInactive")

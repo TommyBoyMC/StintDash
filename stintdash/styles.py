@@ -206,6 +206,42 @@ QComboBox#RaceFilterCombo {
     font-weight: 800;
 }
 
+QPushButton#BackButton {
+    background: #101c2c;
+    color: #eef3f8;
+    border: 1px solid #26384e;
+    border-radius: 8px;
+    padding: 8px 13px;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+QPushButton#BackButton:hover {
+    background: #142238;
+    border: 1px solid #7d1f2b;
+}
+
+QScrollArea#RaceDetailsScroll,
+QWidget#RaceDetailsContent {
+    background: #07101b;
+}
+
+QLabel#RaceInfoValue {
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: 900;
+}
+
+QLabel#TrackMapIcon {
+    color: #e21b2f;
+}
+
+QLabel#TrackMapName {
+    color: #ffffff;
+    font-size: 24px;
+    font-weight: 900;
+}
+
 QComboBox#RaceFilterCombo:hover {
     border: 1px solid #7d1f2b;
 }
@@ -270,6 +306,27 @@ QTableView#RaceHistoryTable {
     selection-background-color: #17263a;
     selection-color: #ffffff;
     outline: 0;
+}
+
+QTableView#LeaderboardTable {
+    background: #0d1826;
+    alternate-background-color: #0d1826;
+    border: 1px solid #203044;
+    border-radius: 10px;
+    gridline-color: transparent;
+    color: #eef3f8;
+    selection-background-color: transparent;
+    selection-color: #ffffff;
+    outline: 0;
+}
+
+QTableView#LeaderboardTable::item {
+    border: 0px;
+    padding: 0 12px;
+}
+
+QTableView#LeaderboardTable::item:selected {
+    background: transparent;
 }
 
 QTableView#RaceHistoryTable::item {

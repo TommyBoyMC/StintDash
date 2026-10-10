@@ -12,6 +12,7 @@ class DriverLap:
 
 @dataclass(frozen=True)
 class DriverResult:
+    driver_id: str
     name: str
     team_name: str
     car_type: str
@@ -22,6 +23,7 @@ class DriverResult:
     class_grid_position: str
     class_position: str
     best_lap_time: str
+    finish_time: str
     laps_completed: str
     pitstops: str
     finish_status: str
@@ -37,6 +39,7 @@ class RaceResult:
     car: str
     car_manufacturer: str
     race_type: str
+    race_duration: str
     start_position: str
     finish_position: str
     best_lap: str
