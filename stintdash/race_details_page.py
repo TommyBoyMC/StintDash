@@ -206,7 +206,7 @@ class RaceDetailsPage(QWidget):
 
     def _build_heading(self) -> QVBoxLayout:
         heading = QVBoxLayout()
-        heading.setSpacing(10)
+        heading.setSpacing(0)
 
         self.back_button = QPushButton("← Back to Race History")
         self.back_button.setObjectName("BackButton")
@@ -214,30 +214,21 @@ class RaceDetailsPage(QWidget):
         self.back_button.clicked.connect(self.back_requested.emit)
         self.back_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
-        eyebrow = QLabel("RACE LOG")
-        eyebrow.setObjectName("PageEyebrow")
-        title = QLabel("Race Details")
-        title.setObjectName("PageTitle")
-        subtitle = QLabel("Detailed classification from the selected LMU result file")
-        subtitle.setObjectName("PageSubtitle")
-
         heading.addWidget(self.back_button, 0, Qt.AlignmentFlag.AlignLeft)
-        heading.addWidget(eyebrow)
-        heading.addWidget(title)
-        heading.addWidget(subtitle)
         return heading
 
     def _build_top_section(self) -> QHBoxLayout:
         top = QHBoxLayout()
-        top.setSpacing(18)
+        top.setSpacing(54)
+        top.setContentsMargins(0, 0, 0, 8)
 
-        self.info_card = DashboardCard("Race Info", "You can view the race info here.")
-        self.info_card.setMinimumHeight(260)
-        self.info_card.body.addLayout(self._build_info_grid())
+        info = QWidget()
+        info.setLayout(self._build_info_grid())
 
-        self.map_card = DashboardCard("Track Map")
-        self.map_card.setMinimumHeight(260)
-        self.map_card.body.addStretch()
+        map_area = QWidget()
+        map_layout = QVBoxLayout(map_area)
+        map_layout.setContentsMargins(0, 0, 0, 0)
+        map_layout.setSpacing(12)
 
         map_icon = QLabel()
         map_icon.setObjectName("TrackMapIcon")
@@ -252,28 +243,38 @@ class RaceDetailsPage(QWidget):
         coming_soon.setObjectName("MutedText")
         coming_soon.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.map_card.body.addWidget(map_icon)
-        self.map_card.body.addWidget(self.track_name_label)
-        self.map_card.body.addWidget(coming_soon)
-        self.map_card.body.addStretch()
+        map_layout.addWidget(map_icon)
+        map_layout.addWidget(self.track_name_label)
+        map_layout.addWidget(coming_soon)
+        map_layout.addStretch()
 
-        top.addWidget(self.info_card, stretch=2)
-        top.addWidget(self.map_card, stretch=1)
+        top.addWidget(info, stretch=2)
+        top.addWidget(map_area, stretch=1)
         return top
 
     def _build_info_grid(self) -> QGridLayout:
         grid = QGridLayout()
-        grid.setHorizontalSpacing(42)
-        grid.setVerticalSpacing(20)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(74)
+        grid.setVerticalSpacing(34)
 
-        self.track_label = self._add_info_field(grid, 0, 0, "Track")
-        self.class_label = self._add_info_field(grid, 1, 0, "Class")
+        title = QLabel("Race Details")
+        title.setObjectName("PageTitle")
+
+        heading = QVBoxLayout()
+        heading.setContentsMargins(0, 0, 0, 0)
+        heading.setSpacing(0)
+        heading.addWidget(title)
+        grid.addLayout(heading, 0, 0, 2, 1)
+
         self.duration_label = self._add_info_field(grid, 0, 1, "Race Duration")
         self.start_label = self._add_info_field(grid, 1, 1, "Start Position")
+        self.track_label = self._add_info_field(grid, 2, 0, "Track")
         self.finish_label = self._add_info_field(grid, 2, 1, "Finish Position")
+        self.class_label = self._add_info_field(grid, 3, 0, "Class")
         self.best_lap_label = self._add_info_field(grid, 3, 1, "Best Lap")
 
-        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(0, 2)
         grid.setColumnStretch(1, 1)
         return grid
 
