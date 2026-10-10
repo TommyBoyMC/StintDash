@@ -1,13 +1,13 @@
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QEvent, QTimer, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
-    QFrame,
     QHeaderView,
     QHBoxLayout,
     QLabel,
     QListView,
+    QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QTableView,
@@ -57,7 +57,19 @@ CAR_FILTERS = [
 
 
 class RaceHistoryDelegate(QStyledItemDelegate):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.hovered_row = -1
+
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index):
+        if index.row() == self.hovered_row:
+            painter.save()
+            painter.fillRect(option.rect, QColor("#121f31"))
+            painter.restore()
+
+            option = QStyleOptionViewItem(option)
+            option.state &= ~QStyle.StateFlag.State_MouseOver
+
         super().paint(painter, option, index)
 
         painter.save()
@@ -74,6 +86,7 @@ class RaceHistoryPage(QWidget):
         super().__init__()
         self.model = RaceHistoryTableModel(create_sample_race_results())
         self._load_pending = False
+        self._hovered_row = -1
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(30, 26, 30, 30)
@@ -89,17 +102,23 @@ class RaceHistoryPage(QWidget):
         subtitle = QLabel("Your previous races and results")
         subtitle.setObjectName("PageSubtitle")
 
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(18)
+        title_row.addWidget(title)
+        title_row.addStretch(1)
+        title_row.addWidget(self._build_filters(), 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
         heading.addWidget(eyebrow)
-        heading.addWidget(title)
+        heading.addLayout(title_row)
         heading.addWidget(subtitle)
         layout.addLayout(heading)
-
-        layout.addWidget(self._build_filters())
 
         self.table = QTableView()
         self.table.setObjectName("RaceHistoryTable")
         self.table.setModel(self.model)
-        self.table.setItemDelegate(RaceHistoryDelegate(self.table))
+        self.table_delegate = RaceHistoryDelegate(self.table)
+        self.table.setItemDelegate(self.table_delegate)
         self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -110,6 +129,8 @@ class RaceHistoryPage(QWidget):
         self.table.verticalHeader().hide()
         self.table.setWordWrap(False)
         self.table.setMouseTracking(True)
+        self.table.viewport().setMouseTracking(True)
+        self.table.viewport().installEventFilter(self)
 
         horizontal_header = self.table.horizontalHeader()
         horizontal_header.setObjectName("RaceHistoryTableHeader")
@@ -128,22 +149,25 @@ class RaceHistoryPage(QWidget):
         layout.addWidget(self.table, stretch=1)
         layout.addWidget(self.empty_label, stretch=1)
 
-    def _build_filters(self) -> QFrame:
-        filter_bar = QFrame()
-        filter_bar.setObjectName("FilterBar")
+    def _build_filters(self) -> QWidget:
+        filter_bar = QWidget()
 
         layout = QHBoxLayout(filter_bar)
-        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
         self.track_filter = self._create_filter_combo(TRACK_FILTERS)
         self.car_filter = self._create_filter_combo(CAR_FILTERS)
         self.position_filter = self._create_filter_combo(self._position_filter_options())
 
-        layout.addWidget(self._filter_group("Track", self.track_filter))
-        layout.addWidget(self._filter_group("Car", self.car_filter))
-        layout.addWidget(self._filter_group("Position", self.position_filter))
-        layout.addStretch()
+        label = QLabel("Filters:")
+        label.setObjectName("FilterLabel")
+        label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        layout.addWidget(label, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.track_filter, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.car_filter, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.position_filter, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.track_filter.currentTextChanged.connect(self._apply_filters)
         self.car_filter.currentTextChanged.connect(self._apply_filters)
@@ -151,28 +175,34 @@ class RaceHistoryPage(QWidget):
 
         return filter_bar
 
-    def _filter_group(self, label: str, combo: QComboBox) -> QWidget:
-        group = QWidget()
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-
-        text = QLabel(label.upper())
-        text.setObjectName("FilterLabel")
-        layout.addWidget(text)
-        layout.addWidget(combo)
-        return group
-
     def _create_filter_combo(self, items: list[str]) -> QComboBox:
         combo = QComboBox()
         combo.setObjectName("RaceFilterCombo")
         combo.addItems(items)
-        combo.setMaxVisibleItems(4)
+        combo.setMaxVisibleItems(5)
         combo.setMinimumWidth(190)
         combo.setView(QListView())
         combo.view().setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        combo.view().setFixedHeight(4 * 34 + 2)
+        combo.view().setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self._set_filter_popup_height(combo)
         return combo
+
+    def _set_filter_popup_height(self, combo: QComboBox):
+        view = combo.view()
+        view.ensurePolished()
+
+        visible_rows = min(5, combo.count())
+        if visible_rows == 0:
+            return
+
+        fallback_item_height = max(30, combo.fontMetrics().height()) + 14
+        item_heights = [
+            max(view.sizeHintForRow(row), fallback_item_height)
+            for row in range(visible_rows)
+        ]
+        popup_padding = 8
+        popup_border = view.frameWidth() * 2
+        view.setFixedHeight(sum(item_heights) + popup_padding + popup_border)
 
     def _position_filter_options(self) -> list[str]:
         positions = sorted(
@@ -190,6 +220,7 @@ class RaceHistoryPage(QWidget):
         self.table.verticalScrollBar().setValue(0)
         self._load_pending = False
         self._update_empty_state()
+        self._set_hovered_row(-1)
 
     def _update_empty_state(self):
         has_rows = self.model.rowCount() > 0
@@ -210,3 +241,26 @@ class RaceHistoryPage(QWidget):
     def _append_next_batch(self):
         self.model.load_more()
         self._load_pending = False
+
+    def eventFilter(self, watched, event):
+        if watched == self.table.viewport():
+            if event.type() == QEvent.Type.MouseMove:
+                self._set_hovered_row(self.table.indexAt(event.position().toPoint()).row())
+            elif event.type() == QEvent.Type.Leave:
+                self._set_hovered_row(-1)
+
+        return super().eventFilter(watched, event)
+
+    def _set_hovered_row(self, row: int):
+        if row == self._hovered_row:
+            return
+
+        old_row = self._hovered_row
+        self._hovered_row = row
+        self.table_delegate.hovered_row = row
+
+        if old_row >= 0:
+            self.table.viewport().update()
+
+        if row >= 0:
+            self.table.viewport().update()

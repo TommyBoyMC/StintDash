@@ -277,10 +277,6 @@ QTableView#RaceHistoryTable::item {
     padding: 0 12px;
 }
 
-QTableView#RaceHistoryTable::item:hover {
-    background: #121f31;
-}
-
 QTableView#RaceHistoryTable::item:selected {
     background: #17263a;
 }
