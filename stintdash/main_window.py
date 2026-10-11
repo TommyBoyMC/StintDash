@@ -2,8 +2,8 @@ import random
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QRect, QSize, Qt
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPixmap
+from PySide6.QtCore import QRect, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -34,19 +34,6 @@ class LatestRacePhotoPanel(QWidget):
         self._pixmap: QPixmap | None = None
         self.setMinimumHeight(150)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 18, 20, 18)
-        layout.setSpacing(3)
-
-        self.title_label = QLabel("Latest Race")
-        self.title_label.setObjectName("CardTitle")
-        self.subtitle_label = QLabel("Most recent session result")
-        self.subtitle_label.setObjectName("CardKicker")
-
-        layout.addWidget(self.title_label)
-        layout.addWidget(self.subtitle_label)
-        layout.addStretch()
 
     def set_image(self, image_path: Path | None):
         if image_path is None:
@@ -79,11 +66,35 @@ class LatestRacePhotoPanel(QWidget):
         else:
             painter.fillRect(self.rect(), QColor("#101827"))
 
-        overlay = QLinearGradient(0, 0, 0, self.height())
-        overlay.setColorAt(0.0, QColor(3, 8, 15, 210))
-        overlay.setColorAt(1.0, QColor(3, 8, 15, 150))
-        painter.fillRect(self.rect(), overlay)
         super().paintEvent(event)
+
+
+class LatestRaceCard(QFrame):
+    clicked = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("LatestRaceCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setStyleSheet(
+            """
+            QFrame#LatestRaceCard {
+                background: #0d1826;
+                border: 1px solid #203044;
+                border-radius: 10px;
+            }
+
+            QFrame#LatestRaceCard:hover {
+                border: 1px solid #852235;
+            }
+            """
+        )
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -282,17 +293,15 @@ class MainWindow(QMainWindow):
         return dashboard
 
     def _latest_race_card(self) -> QFrame:
-        card = QFrame()
-        card.setObjectName("DashboardCard")
-        card.setProperty("highlight", True)
-        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        card = LatestRaceCard()
+        card.clicked.connect(self._open_latest_race_details)
 
         layout = QVBoxLayout(card)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
         self.latest_race_photo = LatestRacePhotoPanel()
-        layout.addWidget(self.latest_race_photo, stretch=1)
+        layout.addWidget(self.latest_race_photo, stretch=55)
 
         bottom = QWidget()
         bottom_layout = QVBoxLayout(bottom)
@@ -302,14 +311,20 @@ class MainWindow(QMainWindow):
         self.latest_result_value = QLabel("—")
         self.latest_best_lap_value = QLabel("—")
         self.latest_track_value = QLabel("—")
+        self.latest_race_image_key: str | None = None
+        self.latest_race_image_path: Path | None = None
 
-        bottom_layout.addStretch()
+        title = QLabel("Latest Race")
+        title.setObjectName("CardTitle")
+
+        bottom_layout.addWidget(title)
+        bottom_layout.addSpacing(2)
         bottom_layout.addLayout(self._latest_race_row("Result", self.latest_result_value))
         bottom_layout.addLayout(self._latest_race_row("Best Lap", self.latest_best_lap_value))
         bottom_layout.addLayout(self._latest_race_row("Track", self.latest_track_value))
         bottom_layout.addStretch()
 
-        layout.addWidget(bottom, stretch=1)
+        layout.addWidget(bottom, stretch=45)
         self._update_latest_race_card()
         return card
 
@@ -333,10 +348,22 @@ class MainWindow(QMainWindow):
             return
 
         latest_race = self.race_history_page.model.all_races[0] if self.race_history_page.model.all_races else None
+        self.latest_race = latest_race
         self.latest_result_value.setText(_display_value(latest_race.finish_position if latest_race else ""))
         self.latest_best_lap_value.setText(_display_value(latest_race.best_lap if latest_race else ""))
         self.latest_track_value.setText(_display_value(latest_race.track if latest_race else ""))
-        self.latest_race_photo.set_image(_random_track_picture(latest_race))
+
+        image_key = _latest_race_image_key(latest_race)
+        if image_key != self.latest_race_image_key:
+            self.latest_race_image_key = image_key
+            self.latest_race_image_path = _random_track_picture(latest_race)
+        self.latest_race_photo.set_image(self.latest_race_image_path)
+
+    def _open_latest_race_details(self):
+        if getattr(self, "latest_race", None) is None:
+            return
+
+        self._open_race_details(self.latest_race)
 
     def _next_daily_race_card(self) -> DashboardCard:
         card = DashboardCard("Next Daily Race", "Scheduled placeholder")
@@ -421,6 +448,12 @@ def _center_crop_source(pixmap: QPixmap, target_size: QSize) -> QRect:
 
 def _display_value(value: str) -> str:
     return value if value and value != "-" else "—"
+
+
+def _latest_race_image_key(race: RaceResult | None) -> str | None:
+    if race is None:
+        return None
+    return race.race_id or str(race.source_file)
 
 
 def _random_track_picture(race: RaceResult | None) -> Path | None:
