@@ -22,7 +22,7 @@ from stintdash.driver_details_page import DriverDetailsPage
 from stintdash.race_data import RaceResult
 from stintdash.race_details_page import RaceDetailsPage
 from stintdash.race_history_page import RaceHistoryPage
-from stintdash.widgets import CircularAvatar, DashboardCard, MetricRow, StaticBarChart, StatPill
+from stintdash.widgets import CircularAvatar, DashboardCard, MetricRow, StaticBarChart
 
 
 ASSETS_PICTURES_DIR = Path(__file__).resolve().parents[1] / "assets" / "pictures"
@@ -116,7 +116,7 @@ class MainWindow(QMainWindow):
 
         self.pages = QStackedWidget()
         self.race_history_page = RaceHistoryPage()
-        self.race_history_page.model.modelReset.connect(self._update_latest_race_card)
+        self.race_history_page.model.modelReset.connect(self._update_dashboard_race_cards)
         self.dashboard_page = self._build_dashboard()
         self.race_details_page = RaceDetailsPage(self.race_history_page.player_name)
         self.driver_details_page = DriverDetailsPage()
@@ -215,7 +215,7 @@ class MainWindow(QMainWindow):
         if page_index in (0, 1):
             self.race_history_page.refresh_races()
         if page_index == 0:
-            self._update_latest_race_card()
+            self._update_dashboard_race_cards()
 
         self._sync_nav_buttons(0 if page_index == 0 else 1)
 
@@ -305,12 +305,13 @@ class MainWindow(QMainWindow):
 
         bottom = QWidget()
         bottom_layout = QVBoxLayout(bottom)
-        bottom_layout.setContentsMargins(20, 16, 20, 18)
-        bottom_layout.setSpacing(10)
+        bottom_layout.setContentsMargins(20, 12, 20, 14)
+        bottom_layout.setSpacing(7)
 
         self.latest_result_value = QLabel("—")
         self.latest_best_lap_value = QLabel("—")
         self.latest_track_value = QLabel("—")
+        self.latest_type_value = QLabel("—")
         self.latest_race_image_key: str | None = None
         self.latest_race_image_path: Path | None = None
 
@@ -322,11 +323,16 @@ class MainWindow(QMainWindow):
         bottom_layout.addLayout(self._latest_race_row("Result", self.latest_result_value))
         bottom_layout.addLayout(self._latest_race_row("Best Lap", self.latest_best_lap_value))
         bottom_layout.addLayout(self._latest_race_row("Track", self.latest_track_value))
+        bottom_layout.addLayout(self._latest_race_row("Type", self.latest_type_value))
         bottom_layout.addStretch()
 
         layout.addWidget(bottom, stretch=45)
         self._update_latest_race_card()
         return card
+
+    def _update_dashboard_race_cards(self):
+        self._update_latest_race_card()
+        self._update_career_summary_card()
 
     def _latest_race_row(self, label: str, value_label: QLabel) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -352,6 +358,7 @@ class MainWindow(QMainWindow):
         self.latest_result_value.setText(_display_value(latest_race.finish_position if latest_race else ""))
         self.latest_best_lap_value.setText(_display_value(latest_race.best_lap if latest_race else ""))
         self.latest_track_value.setText(_display_value(latest_race.track if latest_race else ""))
+        self.latest_type_value.setText(_display_value(latest_race.race_type if latest_race else ""))
 
         image_key = _latest_race_image_key(latest_race)
         if image_key != self.latest_race_image_key:
@@ -373,14 +380,50 @@ class MainWindow(QMainWindow):
         return card
 
     def _career_summary_card(self) -> DashboardCard:
-        card = DashboardCard("Career Summary", "Quick stats")
+        card = DashboardCard("Career Summary", "Quick multiplayer stats.")
         stats = QHBoxLayout()
         stats.setSpacing(10)
-        stats.addWidget(StatPill("Wins", "0"))
-        stats.addWidget(StatPill("Podiums", "5"))
-        stats.addWidget(StatPill("Fastest Laps", "3"))
+        wins_pill, self.career_wins_value = self._career_stat_pill("Wins")
+        podiums_pill, self.career_podiums_value = self._career_stat_pill("Podiums")
+        fastest_laps_pill, self.career_fastest_laps_value = self._career_stat_pill("Fastest Laps")
+        stats.addWidget(wins_pill)
+        stats.addWidget(podiums_pill)
+        stats.addWidget(fastest_laps_pill)
         card.body.addLayout(stats, stretch=1)
+        self._update_career_summary_card()
         return card
+
+    def _career_stat_pill(self, label: str) -> tuple[QFrame, QLabel]:
+        pill = QFrame()
+        pill.setObjectName("StatPill")
+        pill.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        layout = QVBoxLayout(pill)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(4)
+
+        value_label = QLabel("0")
+        value_label.setObjectName("RedMetricValue")
+        value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        label_widget = QLabel(label.upper())
+        label_widget.setObjectName("MetricLabel")
+        label_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        layout.addStretch()
+        layout.addWidget(value_label)
+        layout.addWidget(label_widget)
+        layout.addStretch()
+        return pill, value_label
+
+    def _update_career_summary_card(self):
+        if not hasattr(self, "career_wins_value"):
+            return
+
+        wins, podiums, fastest_laps = _career_summary_stats(self.race_history_page.model.all_races)
+        self.career_wins_value.setText(str(wins))
+        self.career_podiums_value.setText(str(podiums))
+        self.career_fastest_laps_value.setText(str(fastest_laps))
 
     def _weekly_driving_time_card(self) -> DashboardCard:
         card = DashboardCard("Weekly Driving Time", "Last 7 days")
@@ -454,6 +497,78 @@ def _latest_race_image_key(race: RaceResult | None) -> str | None:
     if race is None:
         return None
     return race.race_id or str(race.source_file)
+
+
+def _career_summary_stats(races: list[RaceResult]) -> tuple[int, int, int]:
+    wins = 0
+    podiums = 0
+    fastest_laps = 0
+    seen_race_ids = set()
+
+    for race in races:
+        race_key = race.race_id or str(race.source_file)
+        if race_key in seen_race_ids or not _is_multiplayer_race(race):
+            continue
+
+        seen_race_ids.add(race_key)
+        finish_position = _player_class_finish_position(race)
+        if finish_position == 1:
+            wins += 1
+        if finish_position is not None and finish_position <= 3:
+            podiums += 1
+        if _player_has_class_fastest_lap(race):
+            fastest_laps += 1
+
+    return wins, podiums, fastest_laps
+
+
+def _is_multiplayer_race(race: RaceResult) -> bool:
+    return race.race_type.strip().casefold() == "multiplayer"
+
+
+def _player_class_finish_position(race: RaceResult) -> int | None:
+    class_position = _int_or_none(race.player_driver.class_position)
+    if class_position is not None and class_position > 0:
+        return class_position
+
+    overall_position = _int_or_none(race.player_driver.position)
+    if overall_position is not None and overall_position > 0:
+        return overall_position
+    return None
+
+
+def _player_has_class_fastest_lap(race: RaceResult) -> bool:
+    player_best = _float_or_none(race.player_driver.best_lap_time)
+    if player_best is None or player_best <= 0:
+        return False
+
+    player_class = race.player_driver.car_class.strip().casefold()
+    relevant_laps = []
+    for driver in race.classification:
+        if player_class and driver.car_class.strip().casefold() != player_class:
+            continue
+
+        best_lap = _float_or_none(driver.best_lap_time)
+        if best_lap is not None and best_lap > 0:
+            relevant_laps.append(best_lap)
+
+    if not relevant_laps:
+        return False
+    return abs(player_best - min(relevant_laps)) <= 1e-9
+
+
+def _int_or_none(value: str) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(value: str) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _random_track_picture(race: RaceResult | None) -> Path | None:
