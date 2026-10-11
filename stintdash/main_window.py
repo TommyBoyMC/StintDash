@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stintdash.driver_details_page import DriverDetailsPage
 from stintdash.race_details_page import RaceDetailsPage
 from stintdash.race_history_page import RaceHistoryPage
 from stintdash.widgets import CircularAvatar, DashboardCard, MetricRow, StaticBarChart, StatPill
@@ -39,11 +40,15 @@ class MainWindow(QMainWindow):
         self.dashboard_page = self._build_dashboard()
         self.race_history_page = RaceHistoryPage()
         self.race_details_page = RaceDetailsPage(self.race_history_page.player_name)
+        self.driver_details_page = DriverDetailsPage()
         self.race_history_page.race_selected.connect(self._open_race_details)
         self.race_details_page.back_requested.connect(self._return_to_race_history)
+        self.race_details_page.driver_selected.connect(self._open_driver_details)
+        self.driver_details_page.back_requested.connect(self._return_to_race_details)
         self.pages.addWidget(self.dashboard_page)
         self.pages.addWidget(self.race_history_page)
         self.pages.addWidget(self.race_details_page)
+        self.pages.addWidget(self.driver_details_page)
 
         layout.addWidget(self.pages)
         self._set_active_page(0)
@@ -135,6 +140,15 @@ class MainWindow(QMainWindow):
 
     def _open_race_details(self, race):
         self.race_details_page.set_race(race)
+        self.pages.setCurrentWidget(self.race_details_page)
+        self._sync_nav_buttons(1)
+
+    def _open_driver_details(self, race, driver):
+        self.driver_details_page.set_driver(race, driver)
+        self.pages.setCurrentWidget(self.driver_details_page)
+        self._sync_nav_buttons(1)
+
+    def _return_to_race_details(self):
         self.pages.setCurrentWidget(self.race_details_page)
         self._sync_nav_buttons(1)
 

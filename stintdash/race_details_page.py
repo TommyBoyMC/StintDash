@@ -164,6 +164,7 @@ class RaceLeaderboardDelegate(QStyledItemDelegate):
 
 class RaceDetailsPage(QWidget):
     back_requested = Signal()
+    driver_selected = Signal(object, object)
 
     def __init__(self, player_name: str = DEFAULT_PLAYER_NAME):
         super().__init__()
@@ -322,9 +323,11 @@ class RaceDetailsPage(QWidget):
         self.leaderboard_table.verticalHeader().hide()
         self.leaderboard_table.setWordWrap(False)
         self.leaderboard_table.setMouseTracking(True)
+        self.leaderboard_table.setCursor(Qt.CursorShape.PointingHandCursor)
         self.leaderboard_table.viewport().setMouseTracking(True)
         self.leaderboard_table.viewport().installEventFilter(self)
         self.leaderboard_table.verticalHeader().setDefaultSectionSize(48)
+        self.leaderboard_table.clicked.connect(self._open_driver_details)
 
         header = self.leaderboard_table.horizontalHeader()
         header.setObjectName("RaceHistoryTableHeader")
@@ -341,6 +344,14 @@ class RaceDetailsPage(QWidget):
         header_height = self.leaderboard_table.horizontalHeader().height() or 44
         frame = self.leaderboard_table.frameWidth() * 2
         self.leaderboard_table.setFixedHeight(header_height + frame + (rows * row_height))
+
+    def _open_driver_details(self, index: QModelIndex):
+        if self.current_race is None or not index.isValid():
+            return
+
+        driver = index.data(Qt.ItemDataRole.UserRole)
+        if driver is not None:
+            self.driver_selected.emit(self.current_race, driver)
 
     def eventFilter(self, watched, event):
         if watched == self.leaderboard_table.viewport():
