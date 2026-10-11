@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from collections import Counter
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -21,9 +22,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from stintdash.race_data import DriverLap, DriverResult, RaceResult
+from stintdash.race_data import DriverResult, RaceResult
 
-MISSING_VALUE = "—"
+MISSING_VALUE = "\u2014"
+HIGHLIGHT_PURPLE = "#b86cff"
+HIGHLIGHT_GREEN = "#40d982"
+TEXT_COLOR = "#eef3f8"
+HOVER_COLOR = "#121f31"
+ROW_SEPARATOR_COLOR = "#7d1f2b"
 
 
 class DriverLapTableModel(QAbstractTableModel):
@@ -32,14 +38,14 @@ class DriverLapTableModel(QAbstractTableModel):
     def __init__(self):
         super().__init__()
         self._rows: list[dict] = []
-        self._fastest_lap_index: int | None = None
-        self._best_sector_indexes: dict[str, int] = {}
+        self._race_bests: dict[str, float] = {}
+        self._driver_bests: dict[str, float] = {}
 
-    def set_driver(self, driver: DriverResult | None):
+    def set_driver(self, race: RaceResult | None, driver: DriverResult | None):
         self.beginResetModel()
         self._rows = self._build_rows(driver) if driver is not None else []
-        self._fastest_lap_index = self._find_fastest_lap_index()
-        self._best_sector_indexes = self._find_best_sector_indexes()
+        self._race_bests = _race_best_times(race) if race is not None else {}
+        self._driver_bests = self._find_driver_bests()
         self.endResetModel()
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
@@ -58,19 +64,24 @@ class DriverLapTableModel(QAbstractTableModel):
 
         row = self._rows[index.row()]
         if role == Qt.ItemDataRole.DisplayRole:
-            if index.column() == 5:
-                return row["fastest_lap_topspeed"] if index.row() == self._fastest_lap_index else MISSING_VALUE
             return row["values"][index.column()]
 
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return Qt.AlignmentFlag.AlignCenter
 
         if role == Qt.ItemDataRole.ForegroundRole:
-            if index.column() == 4 and index.row() == self._fastest_lap_index:
-                return QColor("#b86cff")
-            sector_key = {1: "s1", 2: "s2", 3: "s3"}.get(index.column())
-            if sector_key and self._best_sector_indexes.get(sector_key) == index.row():
-                return QColor("#40d982")
+            time_key = {1: "s1", 2: "s2", 3: "s3", 4: "lap"}.get(index.column())
+            if time_key is None:
+                return None
+
+            value = row["times"][time_key]
+            if value is None:
+                return None
+
+            if _same_time(value, self._race_bests.get(time_key)):
+                return QColor(HIGHLIGHT_PURPLE)
+            if _same_time(value, self._driver_bests.get(time_key)):
+                return QColor(HIGHLIGHT_GREEN)
 
         return None
 
@@ -95,46 +106,40 @@ class DriverLapTableModel(QAbstractTableModel):
             rows.append(
                 {
                     "lap": lap,
-                    "lap_time_seconds": lap_time if lap_time is not None and lap_time > 0 else None,
+                    "times": {
+                        "s1": s1 if s1 is not None and s1 > 0 else None,
+                        "s2": s2 if s2 is not None and s2 > 0 else None,
+                        "s3": s3 if s3 is not None and s3 > 0 else None,
+                        "lap": lap_time if lap_time is not None and lap_time > 0 else None,
+                    },
                     "sector_seconds": {
                         "s1": s1 if s1 is not None and s1 > 0 else None,
                         "s2": s2 if s2 is not None and s2 > 0 else None,
                         "s3": s3 if s3 is not None and s3 > 0 else None,
                     },
-                    "fastest_lap_topspeed": _format_speed(topspeed),
                     "values": [
                         lap.number or MISSING_VALUE,
                         _format_sector(s1),
                         _format_sector(s2),
                         _format_sector(s3),
                         _format_lap_time(lap_time),
-                        MISSING_VALUE,
+                        _format_speed(topspeed),
                     ],
                 }
             )
         return rows
 
-    def _find_fastest_lap_index(self) -> int | None:
-        valid_laps = [
-            (row["lap_time_seconds"], index)
-            for index, row in enumerate(self._rows)
-            if row["lap_time_seconds"] is not None
-        ]
-        if not valid_laps:
-            return None
-        return min(valid_laps, key=lambda item: item[0])[1]
-
-    def _find_best_sector_indexes(self) -> dict[str, int]:
-        best_indexes = {}
-        for sector in ("s1", "s2", "s3"):
-            valid_sectors = [
-                (row["sector_seconds"][sector], index)
-                for index, row in enumerate(self._rows)
-                if row["sector_seconds"][sector] is not None
+    def _find_driver_bests(self) -> dict[str, float]:
+        bests = {}
+        for key in ("s1", "s2", "s3", "lap"):
+            valid_times = [
+                row["times"][key]
+                for row in self._rows
+                if row["times"][key] is not None
             ]
-            if valid_sectors:
-                best_indexes[sector] = min(valid_sectors, key=lambda item: item[0])[1]
-        return best_indexes
+            if valid_times:
+                bests[key] = min(valid_times)
+        return bests
 
 
 class DriverLapTableDelegate(QStyledItemDelegate):
@@ -143,18 +148,22 @@ class DriverLapTableDelegate(QStyledItemDelegate):
         self.hovered_row = -1
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index):
+        option = QStyleOptionViewItem(option)
         if index.row() == self.hovered_row:
             painter.save()
-            painter.fillRect(option.rect, QColor("#121f31"))
+            painter.fillRect(option.rect, QColor(HOVER_COLOR))
             painter.restore()
 
-            option = QStyleOptionViewItem(option)
             option.state &= ~QStyle.StateFlag.State_MouseOver
+            option.state &= ~QStyle.StateFlag.State_Selected
+            option.palette.setColor(QPalette.ColorRole.Text, QColor(TEXT_COLOR))
+            option.palette.setColor(QPalette.ColorRole.HighlightedText, QColor(TEXT_COLOR))
+            option.palette.setColor(QPalette.ColorRole.WindowText, QColor(TEXT_COLOR))
 
         super().paint(painter, option, index)
 
         painter.save()
-        pen = QPen(QColor("#7d1f2b"))
+        pen = QPen(QColor(ROW_SEPARATOR_COLOR))
         pen.setWidth(1)
         painter.setPen(pen)
         y = option.rect.bottom()
@@ -200,7 +209,7 @@ class DriverDetailsPage(QWidget):
         self.current_driver = driver
 
         name = driver.name or "Driver"
-        self.title_label.setText(f"Driver Details: {name}")
+        self.title_label.setText(f"Driver: {name}")
         self.subtitle_label.setText(f"Detailed race statistics for {name}.")
         self.track_label.setText(race.track or MISSING_VALUE)
         self.class_label.setText(driver.car_class or MISSING_VALUE)
@@ -212,7 +221,10 @@ class DriverDetailsPage(QWidget):
         self.average_lap_label.setText(_average_lap_time(driver))
         self.total_time_label.setText(_format_lap_time(_float_or_none(driver.finish_time)))
         self.max_topspeed_label.setText(_max_topspeed(driver))
-        self.lap_table_model.set_driver(driver)
+        self.theoretical_best_lap_label.setText(_theoretical_best_lap(driver))
+        self.pitstops_label.setText(_pitstops(driver))
+        self.most_used_tires_label.setText(_most_used_tires(driver))
+        self.lap_table_model.set_driver(race, driver)
         self._resize_lap_table()
         self.scroll_area.verticalScrollBar().setValue(0)
         self._set_hovered_row(-1)
@@ -233,13 +245,13 @@ class DriverDetailsPage(QWidget):
     def _build_info_grid(self) -> QGridLayout:
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 8)
-        grid.setHorizontalSpacing(74)
+        grid.setHorizontalSpacing(46)
         grid.setVerticalSpacing(14)
 
         heading = QVBoxLayout()
         heading.setContentsMargins(0, 0, 0, 0)
         heading.setSpacing(4)
-        self.title_label = QLabel("Driver Details")
+        self.title_label = QLabel("Driver")
         self.title_label.setObjectName("PageTitle")
         self.subtitle_label = QLabel("Detailed race statistics")
         self.subtitle_label.setObjectName("PageSubtitle")
@@ -251,9 +263,12 @@ class DriverDetailsPage(QWidget):
         self.start_label = self._add_info_field(grid, 1, 1, "Start Position")
         self.best_lap_label = self._add_info_field(grid, 0, 2, "Best Lap")
         self.average_lap_label = self._add_info_field(grid, 1, 2, "Average Lap Time")
+        self.theoretical_best_lap_label = self._add_info_field(grid, 0, 3, "Theoretical Best Lap")
+        self.pitstops_label = self._add_info_field(grid, 1, 3, "Pitstops")
         self.track_label = self._add_info_field(grid, 2, 0, "Track")
         self.finish_label = self._add_info_field(grid, 2, 1, "Finish Position")
         self.total_time_label = self._add_info_field(grid, 2, 2, "Total Time")
+        self.most_used_tires_label = self._add_info_field(grid, 2, 3, "Most Used Tires")
         self.class_label = self._add_info_field(grid, 3, 0, "Class")
         self.track_limits_label = self._add_info_field(grid, 3, 1, "Track Limits Points")
         self.max_topspeed_label = self._add_info_field(grid, 3, 2, "Max Topspeed")
@@ -261,6 +276,7 @@ class DriverDetailsPage(QWidget):
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(2, 1)
+        grid.setColumnStretch(3, 1)
         return grid
 
     def _add_info_field(self, grid: QGridLayout, row: int, column: int, label: str) -> QLabel:
@@ -354,6 +370,25 @@ def _average_lap_time(driver: DriverResult) -> str:
     return _format_lap_time(sum(valid_laps) / len(valid_laps))
 
 
+def _race_best_times(race: RaceResult | None) -> dict[str, float]:
+    if race is None:
+        return {}
+
+    bests = {}
+    for key in ("s1", "s2", "s3", "lap"):
+        valid_times = []
+        for driver in race.classification:
+            for lap in driver.laps:
+                raw_value = lap.time if key == "lap" else lap.raw_values.get(key)
+                seconds = _float_or_none(raw_value)
+                if seconds is not None and seconds > 0:
+                    valid_times.append(seconds)
+
+        if valid_times:
+            bests[key] = min(valid_times)
+    return bests
+
+
 def _max_topspeed(driver: DriverResult) -> str:
     speeds = [
         speed
@@ -363,6 +398,81 @@ def _max_topspeed(driver: DriverResult) -> str:
     if not speeds:
         return MISSING_VALUE
     return _format_speed(max(speeds))
+
+
+def _theoretical_best_lap(driver: DriverResult) -> str:
+    sector_bests = []
+    for sector in ("s1", "s2", "s3"):
+        valid_sectors = [
+            seconds
+            for seconds in (_float_or_none(lap.raw_values.get(sector)) for lap in driver.laps)
+            if seconds is not None and seconds > 0
+        ]
+        if not valid_sectors:
+            return MISSING_VALUE
+        sector_bests.append(min(valid_sectors))
+    return _format_lap_time(sum(sector_bests))
+
+
+def _pitstops(driver: DriverResult) -> str:
+    pitstops = driver.pitstops.strip()
+    return pitstops if pitstops else MISSING_VALUE
+
+
+def _most_used_tires(driver: DriverResult) -> str:
+    compounds = [_lap_tire_compound(lap.raw_values) for lap in driver.laps]
+    compounds = [compound for compound in compounds if compound]
+    if not compounds:
+        return MISSING_VALUE
+
+    counts = Counter(compounds)
+    highest_count = max(counts.values())
+    most_common = sorted(compound for compound, count in counts.items() if count == highest_count)
+    if len(most_common) == 1:
+        return most_common[0]
+    return f"Tie: {', '.join(most_common)}"
+
+
+def _lap_tire_compound(raw_values: dict[str, str]) -> str:
+    front = _compound_name(raw_values.get("fcompound", ""))
+    rear = _compound_name(raw_values.get("rcompound", ""))
+    if front and rear:
+        return front if front == rear else f"F: {front} / R: {rear}"
+    if front or rear:
+        return front or rear
+
+    corners = {
+        "FL": _compound_name(raw_values.get("FL", "")),
+        "FR": _compound_name(raw_values.get("FR", "")),
+        "RL": _compound_name(raw_values.get("RL", "")),
+        "RR": _compound_name(raw_values.get("RR", "")),
+    }
+    present = {corner: compound for corner, compound in corners.items() if compound}
+    if not present:
+        return ""
+
+    unique = set(present.values())
+    if len(unique) == 1 and len(present) >= 2:
+        return next(iter(unique))
+
+    front_values = {present[corner] for corner in ("FL", "FR") if corner in present}
+    rear_values = {present[corner] for corner in ("RL", "RR") if corner in present}
+    if len(front_values) == 1 and len(rear_values) == 1:
+        front = next(iter(front_values))
+        rear = next(iter(rear_values))
+        return front if front == rear else f"F: {front} / R: {rear}"
+
+    return " / ".join(f"{corner}: {compound}" for corner, compound in sorted(present.items()))
+
+
+def _compound_name(value: str) -> str:
+    if not value:
+        return ""
+
+    compound = value.strip()
+    if "," in compound:
+        compound = compound.split(",", 1)[1].strip()
+    return compound
 
 
 def _track_limits_points(race: RaceResult, driver: DriverResult) -> str:
@@ -464,6 +574,12 @@ def _format_lap_time(value: float | None) -> str:
     if hours:
         return f"{hours}:{minutes:02d}:{whole_seconds:02d}.{milliseconds:03d}"
     return f"{minutes}:{whole_seconds:02d}.{milliseconds:03d}"
+
+
+def _same_time(value: float | None, other: float | None) -> bool:
+    if value is None or other is None:
+        return False
+    return abs(value - other) <= 1e-9
 
 
 def _int_or_large(value: str) -> int:

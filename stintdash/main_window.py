@@ -1,4 +1,9 @@
-from PySide6.QtCore import QSize, Qt
+import random
+import re
+from pathlib import Path
+
+from PySide6.QtCore import QRect, QSize, Qt
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -14,9 +19,71 @@ from PySide6.QtWidgets import (
 )
 
 from stintdash.driver_details_page import DriverDetailsPage
+from stintdash.race_data import RaceResult
 from stintdash.race_details_page import RaceDetailsPage
 from stintdash.race_history_page import RaceHistoryPage
 from stintdash.widgets import CircularAvatar, DashboardCard, MetricRow, StaticBarChart, StatPill
+
+
+ASSETS_PICTURES_DIR = Path(__file__).resolve().parents[1] / "assets" / "pictures"
+
+
+class LatestRacePhotoPanel(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._pixmap: QPixmap | None = None
+        self.setMinimumHeight(150)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(3)
+
+        self.title_label = QLabel("Latest Race")
+        self.title_label.setObjectName("CardTitle")
+        self.subtitle_label = QLabel("Most recent session result")
+        self.subtitle_label.setObjectName("CardKicker")
+
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.subtitle_label)
+        layout.addStretch()
+
+    def set_image(self, image_path: Path | None):
+        if image_path is None:
+            self._pixmap = None
+        else:
+            pixmap = QPixmap(str(image_path))
+            self._pixmap = pixmap if not pixmap.isNull() else None
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        radius = 10
+        rect = self.rect()
+        clip_path = QPainterPath()
+        clip_path.moveTo(rect.left(), rect.bottom())
+        clip_path.lineTo(rect.left(), rect.top() + radius)
+        clip_path.quadTo(rect.left(), rect.top(), rect.left() + radius, rect.top())
+        clip_path.lineTo(rect.right() - radius, rect.top())
+        clip_path.quadTo(rect.right(), rect.top(), rect.right(), rect.top() + radius)
+        clip_path.lineTo(rect.right(), rect.bottom())
+        clip_path.closeSubpath()
+        painter.setClipPath(clip_path)
+
+        if self._pixmap:
+            source = _center_crop_source(self._pixmap, self.size())
+            painter.drawPixmap(self.rect(), self._pixmap, source)
+        else:
+            painter.fillRect(self.rect(), QColor("#101827"))
+
+        overlay = QLinearGradient(0, 0, 0, self.height())
+        overlay.setColorAt(0.0, QColor(3, 8, 15, 210))
+        overlay.setColorAt(1.0, QColor(3, 8, 15, 150))
+        painter.fillRect(self.rect(), overlay)
+        super().paintEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -37,8 +104,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_top_bar())
 
         self.pages = QStackedWidget()
-        self.dashboard_page = self._build_dashboard()
         self.race_history_page = RaceHistoryPage()
+        self.race_history_page.model.modelReset.connect(self._update_latest_race_card)
+        self.dashboard_page = self._build_dashboard()
         self.race_details_page = RaceDetailsPage(self.race_history_page.player_name)
         self.driver_details_page = DriverDetailsPage()
         self.race_history_page.race_selected.connect(self._open_race_details)
@@ -133,8 +201,10 @@ class MainWindow(QMainWindow):
 
     def _set_active_page(self, page_index: int):
         self.pages.setCurrentIndex(page_index)
-        if page_index == 1:
+        if page_index in (0, 1):
             self.race_history_page.refresh_races()
+        if page_index == 0:
+            self._update_latest_race_card()
 
         self._sync_nav_buttons(0 if page_index == 0 else 1)
 
@@ -211,24 +281,62 @@ class MainWindow(QMainWindow):
         page_layout.addLayout(grid, stretch=1)
         return dashboard
 
-    def _latest_race_card(self) -> DashboardCard:
-        card = DashboardCard("Latest Race", "Most recent session result", highlight=True)
+    def _latest_race_card(self) -> QFrame:
+        card = QFrame()
+        card.setObjectName("DashboardCard")
+        card.setProperty("highlight", True)
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        result = QLabel("P5")
-        result.setObjectName("LargeMetricValue")
-        result.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        result_label = QLabel("RESULT")
-        result_label.setObjectName("MetricLabel")
+        self.latest_race_photo = LatestRacePhotoPanel()
+        layout.addWidget(self.latest_race_photo, stretch=1)
 
-        card.body.addStretch()
-        card.body.addWidget(result_label)
-        card.body.addWidget(result)
-        card.body.addSpacing(12)
-        card.body.addWidget(MetricRow("Best Lap", "1:58.427"))
-        card.body.addWidget(MetricRow("Track", "Spa-Francorchamps"))
-        card.body.addStretch()
+        bottom = QWidget()
+        bottom_layout = QVBoxLayout(bottom)
+        bottom_layout.setContentsMargins(20, 16, 20, 18)
+        bottom_layout.setSpacing(10)
+
+        self.latest_result_value = QLabel("—")
+        self.latest_best_lap_value = QLabel("—")
+        self.latest_track_value = QLabel("—")
+
+        bottom_layout.addStretch()
+        bottom_layout.addLayout(self._latest_race_row("Result", self.latest_result_value))
+        bottom_layout.addLayout(self._latest_race_row("Best Lap", self.latest_best_lap_value))
+        bottom_layout.addLayout(self._latest_race_row("Track", self.latest_track_value))
+        bottom_layout.addStretch()
+
+        layout.addWidget(bottom, stretch=1)
+        self._update_latest_race_card()
         return card
+
+    def _latest_race_row(self, label: str, value_label: QLabel) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(12)
+
+        label_widget = QLabel(label.upper())
+        label_widget.setObjectName("MetricLabel")
+        value_label.setObjectName("MetricValue")
+        value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        row.addWidget(label_widget)
+        row.addStretch()
+        row.addWidget(value_label)
+        return row
+
+    def _update_latest_race_card(self):
+        if not hasattr(self, "latest_race_photo"):
+            return
+
+        latest_race = self.race_history_page.model.all_races[0] if self.race_history_page.model.all_races else None
+        self.latest_result_value.setText(_display_value(latest_race.finish_position if latest_race else ""))
+        self.latest_best_lap_value.setText(_display_value(latest_race.best_lap if latest_race else ""))
+        self.latest_track_value.setText(_display_value(latest_race.track if latest_race else ""))
+        self.latest_race_photo.set_image(_random_track_picture(latest_race))
 
     def _next_daily_race_card(self) -> DashboardCard:
         card = DashboardCard("Next Daily Race", "Scheduled placeholder")
@@ -292,3 +400,75 @@ class MainWindow(QMainWindow):
         card.body.addWidget(MetricRow("Build phase", "Static UI"))
         card.body.addStretch()
         return card
+
+
+def _center_crop_source(pixmap: QPixmap, target_size: QSize) -> QRect:
+    if pixmap.isNull() or target_size.width() <= 0 or target_size.height() <= 0:
+        return QRect()
+
+    target_ratio = target_size.width() / target_size.height()
+    source_ratio = pixmap.width() / pixmap.height()
+
+    if source_ratio > target_ratio:
+        source_width = int(pixmap.height() * target_ratio)
+        source_x = (pixmap.width() - source_width) // 2
+        return QRect(source_x, 0, source_width, pixmap.height())
+
+    source_height = int(pixmap.width() / target_ratio)
+    source_y = (pixmap.height() - source_height) // 2
+    return QRect(0, source_y, pixmap.width(), source_height)
+
+
+def _display_value(value: str) -> str:
+    return value if value and value != "-" else "—"
+
+
+def _random_track_picture(race: RaceResult | None) -> Path | None:
+    if race is None:
+        return None
+
+    prefix = _track_picture_prefix(race.track)
+    if not prefix:
+        return None
+
+    candidates = []
+    for index in (1, 2, 3):
+        pattern = f"{prefix}-picture-{index}.*"
+        candidates.extend(
+            path
+            for path in ASSETS_PICTURES_DIR.glob(pattern)
+            if path.suffix.casefold() in {".png", ".jpg", ".jpeg"}
+        )
+
+    return random.choice(candidates) if candidates else None
+
+
+def _track_picture_prefix(track: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "", track.casefold())
+    if not normalized:
+        return ""
+
+    aliases = (
+        (("bahrain",), "Bahrain"),
+        (("barcelona", "circuitdebarcelona", "barca"), "Barca"),
+        (("lemans", "sarthe", "circuitdelasarthe", "circuitdes24heuresdumans"), "Sarthe"),
+        (("paulricard",), "PaulRicard"),
+        (("cota", "circuitoftheamericas"), "COTA"),
+        (("daytona",), "Daytona"),
+        (("fuji",), "Fuji"),
+        (("imola",), "Imola"),
+        (("interlagos",), "Interlagos"),
+        (("lusail",), "Lusail"),
+        (("roadatlanta",), "RoadAtlanta"),
+        (("monza",), "Monza"),
+        (("portimao", "portimao"), "Portimao"),
+        (("sebring",), "Sebring"),
+        (("silverstone",), "Silverstone"),
+        (("spafrancorchamps", "spa"), "Spa"),
+        (("longbeach",), "LongBeach"),
+        (("lagunaseca", "laguna"), "Laguna"),
+    )
+    for needles, prefix in aliases:
+        if any(needle in normalized for needle in needles):
+            return prefix
+    return ""
