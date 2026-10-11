@@ -73,12 +73,21 @@ class StatPill(QFrame):
 
 
 class StaticBarChart(QWidget):
-    def __init__(self, values: list[int], labels: list[str]):
+    def __init__(self, values: list[int], labels: list[str], axis_labels: tuple[str, str, str] | None = None, max_value: float | None = None):
         super().__init__()
         self.values = values
         self.labels = labels
+        self.axis_labels = axis_labels
+        self.max_value = max_value
         self.setMinimumHeight(150)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    def set_data(self, values: list[int], labels: list[str], axis_labels: tuple[str, str, str] | None = None, max_value: float | None = None):
+        self.values = values
+        self.labels = labels
+        self.axis_labels = axis_labels
+        self.max_value = max_value
+        self.update()
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -88,13 +97,13 @@ class StaticBarChart(QWidget):
 
         width = self.width()
         height = self.height()
-        left = 8
+        left = 34 if self.axis_labels else 8
         right = 8
         top = 8
         label_space = 24
         chart_height = height - top - label_space - 8
         chart_width = width - left - right
-        max_value = max(self.values) if self.values else 1
+        max_value = self.max_value if self.max_value else (max(self.values) if self.values else 1)
 
         grid_pen = QPen(QColor("#1d2b3c"))
         grid_pen.setWidth(1)
@@ -102,6 +111,10 @@ class StaticBarChart(QWidget):
         for i in range(3):
             y = top + int(chart_height * i / 2)
             painter.drawLine(left, y, width - right, y)
+            if self.axis_labels:
+                painter.setPen(QColor("#7c8a9b"))
+                painter.drawText(0, y - 8, left - 6, 16, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, self.axis_labels[2 - i])
+                painter.setPen(grid_pen)
 
         slot = chart_width / len(self.values)
         bar_width = min(28, slot * 0.42)

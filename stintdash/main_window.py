@@ -1,5 +1,7 @@
 import random
 import re
+from collections import Counter
+from datetime import date, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import QRect, QSize, Qt, Signal
@@ -333,6 +335,7 @@ class MainWindow(QMainWindow):
     def _update_dashboard_race_cards(self):
         self._update_latest_race_card()
         self._update_career_summary_card()
+        self._update_multiplayer_dashboard_stats()
 
     def _latest_race_row(self, label: str, value_label: QLabel) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -426,33 +429,57 @@ class MainWindow(QMainWindow):
         self.career_fastest_laps_value.setText(str(fastest_laps))
 
     def _weekly_driving_time_card(self) -> DashboardCard:
-        card = DashboardCard("Weekly Driving Time", "Last 7 days")
-        chart = StaticBarChart(
-            values=[35, 55, 44, 68, 92, 78, 50],
-            labels=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-        )
-        card.body.addWidget(chart, stretch=1)
+        card = DashboardCard("Weekly Races Driven", "Last 7 days")
+        values, labels, axis_labels, max_value = _weekly_multiplayer_races(self.race_history_page.model.all_races)
+        self.weekly_races_chart = StaticBarChart(values=values, labels=labels, axis_labels=axis_labels, max_value=max_value)
+        card.body.addWidget(self.weekly_races_chart, stretch=1)
+        self._update_multiplayer_dashboard_stats()
         return card
 
     def _most_driven_track_card(self) -> DashboardCard:
         card = DashboardCard("Most Driven Track", "By total sessions")
-        value = QLabel("Sebring")
-        value.setObjectName("TrackValue")
-        value.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.most_driven_track_value = QLabel("—")
+        self.most_driven_track_value.setObjectName("TrackValue")
+        self.most_driven_track_value.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.most_driven_track_count = QLabel("No multiplayer races")
+        self.most_driven_track_count.setObjectName("MetricLabel")
+        self.most_driven_track_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card.body.addStretch()
-        card.body.addWidget(value)
+        card.body.addWidget(self.most_driven_track_value)
+        card.body.addWidget(self.most_driven_track_count)
         card.body.addStretch()
+        self._update_multiplayer_dashboard_stats()
         return card
 
     def _most_driven_car_card(self) -> DashboardCard:
         card = DashboardCard("Most Driven Car", "By total sessions")
-        value = QLabel("Corvette")
-        value.setObjectName("CarValue")
-        value.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.most_driven_car_value = QLabel("—")
+        self.most_driven_car_value.setObjectName("CarValue")
+        self.most_driven_car_value.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.most_driven_car_count = QLabel("No multiplayer races")
+        self.most_driven_car_count.setObjectName("MetricLabel")
+        self.most_driven_car_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card.body.addStretch()
-        card.body.addWidget(value)
+        card.body.addWidget(self.most_driven_car_value)
+        card.body.addWidget(self.most_driven_car_count)
         card.body.addStretch()
+        self._update_multiplayer_dashboard_stats()
         return card
+
+    def _update_multiplayer_dashboard_stats(self):
+        if hasattr(self, "most_driven_track_value"):
+            track, count = _most_common_multiplayer_value(self.race_history_page.model.all_races, _track_stat_key)
+            self.most_driven_track_value.setText(track or "—")
+            self.most_driven_track_count.setText(_race_count_label(count))
+
+        if hasattr(self, "most_driven_car_value"):
+            car, count = _most_common_multiplayer_value(self.race_history_page.model.all_races, _car_stat_key)
+            self.most_driven_car_value.setText(car or "—")
+            self.most_driven_car_count.setText(_race_count_label(count))
+
+        if hasattr(self, "weekly_races_chart"):
+            values, labels, axis_labels, max_value = _weekly_multiplayer_races(self.race_history_page.model.all_races)
+            self.weekly_races_chart.set_data(values, labels, axis_labels, max_value)
 
     def _status_card(self) -> DashboardCard:
         card = DashboardCard("Dashboard Status", "Design preview")
@@ -520,6 +547,124 @@ def _career_summary_stats(races: list[RaceResult]) -> tuple[int, int, int]:
             fastest_laps += 1
 
     return wins, podiums, fastest_laps
+
+
+def _unique_multiplayer_races(races: list[RaceResult]) -> list[RaceResult]:
+    unique_races = []
+    seen_race_ids = set()
+    for race in races:
+        race_key = race.race_id or str(race.source_file)
+        if race_key in seen_race_ids or not _is_multiplayer_race(race):
+            continue
+
+        seen_race_ids.add(race_key)
+        unique_races.append(race)
+    return unique_races
+
+
+def _most_common_multiplayer_value(races: list[RaceResult], value_func) -> tuple[str, int]:
+    counts = Counter()
+    display_values = {}
+    for race in _unique_multiplayer_races(races):
+        key, display = value_func(race)
+        if not key:
+            continue
+
+        counts[key] += 1
+        display_values[key] = display
+
+    if not counts:
+        return "", 0
+
+    highest_count = max(counts.values())
+    tied_keys = sorted(key for key, count in counts.items() if count == highest_count)
+    selected_key = tied_keys[0]
+    return display_values[selected_key], highest_count
+
+
+def _track_stat_key(race: RaceResult) -> tuple[str, str]:
+    track = race.track.strip()
+    if not track or track == "-":
+        return "", ""
+
+    prefix = _track_picture_prefix(track)
+    key = prefix.casefold() if prefix else re.sub(r"[^a-z0-9]+", "", track.casefold())
+    return key, track
+
+
+def _car_stat_key(race: RaceResult) -> tuple[str, str]:
+    manufacturer = _lmu_car_manufacturer(race)
+    if not manufacturer:
+        return "", ""
+
+    key = re.sub(r"[^a-z0-9]+", "", manufacturer.casefold())
+    return key, manufacturer
+
+
+def _lmu_car_manufacturer(race: RaceResult) -> str:
+    car = race.car.strip()
+    parsed_manufacturer = race.car_manufacturer.strip()
+    manufacturer_source = f"{car} {parsed_manufacturer}".casefold()
+    if not car or car == "-":
+        return ""
+
+    known_manufacturers = (
+        ("corvette", "Corvette"),
+        ("chevrolet", "Corvette"),
+        ("aston martin", "Aston Martin"),
+        ("mclaren", "McLaren"),
+        ("mercedes", "Mercedes"),
+        ("lamborghini", "Lamborghini"),
+        ("porsche", "Porsche"),
+        ("ferrari", "Ferrari"),
+        ("lexus", "Lexus"),
+        ("ford", "Ford"),
+        ("bmw", "BMW"),
+    )
+    for match, display in known_manufacturers:
+        if match in manufacturer_source:
+            return display
+
+    if parsed_manufacturer and parsed_manufacturer != "-":
+        return parsed_manufacturer
+    return car.split()[0]
+
+
+def _race_count_label(count: int) -> str:
+    if count <= 0:
+        return "No multiplayer races"
+    return "1 race" if count == 1 else f"{count} races"
+
+
+def _weekly_multiplayer_races(races: list[RaceResult]) -> tuple[list[int], list[str], tuple[str, str, str], float]:
+    today = date.today()
+    days = [today - timedelta(days=offset) for offset in range(6, -1, -1)]
+    counts = {day: 0 for day in days}
+
+    for race in _unique_multiplayer_races(races):
+        race_day = race.sort_datetime.date()
+        if race_day in counts:
+            counts[race_day] += 1
+
+    values = [counts[day] for day in days]
+    labels = [day.strftime("%a") for day in days[:-1]] + ["Tdy"]
+    max_value = _weekly_axis_max(max(values, default=0))
+    axis_labels = ("0", _format_axis_tick(max_value / 2), _format_axis_tick(max_value))
+    return values, labels, axis_labels, max_value
+
+
+def _weekly_axis_max(total: int) -> float:
+    if total < 5:
+        return 5.0
+
+    max_value = 10
+    while total > max_value:
+        max_value *= 2
+    return float(max_value)
+
+
+def _format_axis_tick(value: float) -> str:
+    return str(int(value)) if value.is_integer() else f"{value:g}"
 
 
 def _is_multiplayer_race(race: RaceResult) -> bool:
