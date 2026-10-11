@@ -65,9 +65,11 @@ class RaceLeaderboardModel(QAbstractTableModel):
                 return Qt.AlignmentFlag.AlignCenter
             return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
 
-        if role == Qt.ItemDataRole.ForegroundRole and index.column() == 3:
-            if row["driver"].driver_id == self._fastest_lap_driver_id:
+        if role == Qt.ItemDataRole.ForegroundRole:
+            if index.column() == 3 and row["driver"].driver_id == self._fastest_lap_driver_id:
                 return QColor("#b86cff")
+            if index.column() == 4 and row["gap_status"] == "DNF":
+                return QColor("#ff5a66")
 
         if role == Qt.ItemDataRole.UserRole:
             return row["driver"]
@@ -93,25 +95,28 @@ class RaceLeaderboardModel(QAbstractTableModel):
             (driver for driver in race.classification if _is_finisher(driver)),
             key=lambda driver: _int_or_large(driver.position),
         )
-        if not finishers:
-            return []
-
-        leader = finishers[0]
-        leader_finish_time = _float_or_none(leader.finish_time)
-        leader_laps = _int_or_none(leader.laps_completed)
+        non_finishers = sorted(
+            (driver for driver in race.classification if not _is_finisher(driver)),
+            key=lambda driver: _int_or_large(driver.position),
+        )
+        leader = finishers[0] if finishers else None
+        leader_finish_time = _float_or_none(leader.finish_time) if leader else None
+        leader_laps = _int_or_none(leader.laps_completed) if leader else None
 
         rows = []
-        for driver in finishers:
+        for driver in (*finishers, *non_finishers):
+            gap_status = _finish_status_label(driver)
             rows.append(
                 {
                     "driver": driver,
                     "best_lap_seconds": _float_or_none(driver.best_lap_time),
+                    "gap_status": gap_status,
                     "values": [
                         _position_value(driver.position),
                         driver.name or "-",
                         driver.car_type or "-",
                         _format_seconds(driver.best_lap_time),
-                        _format_gap(driver, leader, leader_finish_time, leader_laps),
+                        gap_status or _format_gap(driver, leader, leader_finish_time, leader_laps),
                     ],
                 }
             )
@@ -256,15 +261,18 @@ class RaceDetailsPage(QWidget):
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(74)
-        grid.setVerticalSpacing(34)
+        grid.setVerticalSpacing(14)
 
         title = QLabel("Race Details")
         title.setObjectName("PageTitle")
+        subtitle = QLabel("Detailed classification from the selected LMU result file")
+        subtitle.setObjectName("PageSubtitle")
 
         heading = QVBoxLayout()
         heading.setContentsMargins(0, 0, 0, 0)
-        heading.setSpacing(0)
+        heading.setSpacing(4)
         heading.addWidget(title)
+        heading.addWidget(subtitle)
         grid.addLayout(heading, 0, 0, 2, 1)
 
         self.duration_label = self._add_info_field(grid, 0, 1, "Race Duration")
@@ -353,22 +361,59 @@ class RaceDetailsPage(QWidget):
 
 
 def _is_finisher(driver: DriverResult) -> bool:
-    if _int_or_none(driver.position) is None or _int_or_none(driver.laps_completed) is None:
+    status = driver.finish_status.strip().casefold()
+    if _is_dnf_status(status) or _is_disqualified_status(status):
         return False
 
-    status = driver.finish_status.strip().casefold()
-    if not status:
-        return _float_or_none(driver.finish_time) is not None
+    if "not classified" in status or "unclassified" in status:
+        return False
 
-    return status.startswith("finished") or "classified" in status
+    if status.startswith("finished") or "classified" in status:
+        return True
+
+    return _float_or_none(driver.finish_time) is not None
+
+
+def _finish_status_label(driver: DriverResult) -> str:
+    if _is_finisher(driver):
+        return ""
+
+    status = driver.finish_status.strip()
+    normalized = status.casefold()
+    if not normalized:
+        return "-"
+
+    if _is_dnf_status(normalized):
+        return "DNF"
+
+    if _is_disqualified_status(normalized):
+        return "DSQ"
+
+    return status.upper() if len(status) <= 4 else status
+
+
+def _is_dnf_status(normalized_status: str) -> bool:
+    return (
+        normalized_status == "dnf"
+        or "did not finish" in normalized_status
+        or "not finished" in normalized_status
+        or "retired" in normalized_status
+    )
+
+
+def _is_disqualified_status(normalized_status: str) -> bool:
+    return normalized_status in {"dq", "dsq"} or "disqualif" in normalized_status
 
 
 def _format_gap(
     driver: DriverResult,
-    leader: DriverResult,
+    leader: DriverResult | None,
     leader_finish_time: float | None,
     leader_laps: int | None,
 ) -> str:
+    if leader is None:
+        return "-"
+
     if driver.driver_id == leader.driver_id:
         return _format_total_time(driver.finish_time)
 
