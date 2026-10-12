@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
@@ -28,6 +28,20 @@ class DashboardCard(QFrame):
             header.addWidget(subtitle_label)
 
         self.body.addLayout(header)
+
+
+class ClickableDashboardCard(DashboardCard):
+    clicked = Signal()
+
+    def __init__(self, title: str, subtitle: str | None = None, highlight: bool = False):
+        super().__init__(title, subtitle, highlight)
+        self.setProperty("clickable", True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
 
 
 class MetricRow(QWidget):

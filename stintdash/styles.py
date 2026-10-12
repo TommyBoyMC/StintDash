@@ -119,6 +119,10 @@ QFrame#DashboardCard {
     border-radius: 10px;
 }
 
+QFrame#DashboardCard[clickable="true"]:hover {
+    border: 1px solid #852235;
+}
+
 QFrame#DashboardCard[highlight="true"] {
     border: 1px solid #852235;
     background: #111927;
@@ -171,6 +175,68 @@ QLabel#MutedText {
     color: #7a899b;
     font-size: 12px;
     font-weight: 700;
+}
+
+QFrame#SegmentedControl {
+    background: #0a1421;
+    border: 1px solid #203044;
+    border-radius: 9px;
+}
+
+QPushButton#SegmentButton {
+    background: transparent;
+    color: #7d8ca0;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+QPushButton#SegmentButton:checked {
+    background: #e21b2f;
+    color: #ffffff;
+    border: 1px solid #ff4052;
+}
+
+QPushButton#SegmentButton:disabled {
+    color: #4f5e70;
+}
+
+QFrame#UpcomingRaceCard {
+    background: #0d1826;
+    border: 1px solid #203044;
+    border-radius: 10px;
+}
+
+QFrame#TrackImagePlaceholder {
+    background: #101827;
+    border: 1px solid #26384e;
+    border-radius: 8px;
+}
+
+QLabel#UpcomingRaceTitle {
+    color: #ffffff;
+    font-size: 23px;
+    font-weight: 900;
+}
+
+QLabel#UpcomingRaceMeta {
+    color: #7d8ca0;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+QLabel#UpcomingRaceTime {
+    color: #eef3f8;
+    font-size: 16px;
+    font-weight: 900;
+}
+
+QLabel#UpcomingRaceCountdown {
+    color: #ff3448;
+    font-size: 16px;
+    font-weight: 900;
 }
 
 QFrame#StatPill {

@@ -1,10 +1,9 @@
-import random
 import re
 from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
 
-from PySide6.QtCore import QRect, QSize, Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
@@ -24,10 +23,9 @@ from stintdash.driver_details_page import DriverDetailsPage
 from stintdash.race_data import RaceResult
 from stintdash.race_details_page import RaceDetailsPage
 from stintdash.race_history_page import RaceHistoryPage
-from stintdash.widgets import CircularAvatar, DashboardCard, MetricRow, StaticBarChart
-
-
-ASSETS_PICTURES_DIR = Path(__file__).resolve().parents[1] / "assets" / "pictures"
+from stintdash.track_images import center_crop_source, random_track_picture, track_picture_prefix
+from stintdash.upcoming_races_page import UpcomingRacesPage
+from stintdash.widgets import CircularAvatar, ClickableDashboardCard, DashboardCard, MetricRow, StaticBarChart
 
 
 class LatestRacePhotoPanel(QWidget):
@@ -63,7 +61,7 @@ class LatestRacePhotoPanel(QWidget):
         painter.setClipPath(clip_path)
 
         if self._pixmap:
-            source = _center_crop_source(self._pixmap, self.size())
+            source = center_crop_source(self._pixmap, self.size())
             painter.drawPixmap(self.rect(), self._pixmap, source)
         else:
             painter.fillRect(self.rect(), QColor("#101827"))
@@ -120,6 +118,7 @@ class MainWindow(QMainWindow):
         self.race_history_page = RaceHistoryPage()
         self.race_history_page.model.modelReset.connect(self._update_dashboard_race_cards)
         self.dashboard_page = self._build_dashboard()
+        self.upcoming_races_page = UpcomingRacesPage()
         self.race_details_page = RaceDetailsPage(self.race_history_page.player_name)
         self.driver_details_page = DriverDetailsPage()
         self.race_history_page.race_selected.connect(self._open_race_details)
@@ -128,6 +127,7 @@ class MainWindow(QMainWindow):
         self.driver_details_page.back_requested.connect(self._return_to_race_details)
         self.pages.addWidget(self.dashboard_page)
         self.pages.addWidget(self.race_history_page)
+        self.pages.addWidget(self.upcoming_races_page)
         self.pages.addWidget(self.race_details_page)
         self.pages.addWidget(self.driver_details_page)
 
@@ -176,6 +176,11 @@ class MainWindow(QMainWindow):
         self.race_history_nav.clicked.connect(lambda: self._set_active_page(1))
         nav_layout.addWidget(self.race_history_nav)
 
+        self.upcoming_races_nav = QPushButton("Upcoming Races")
+        self.upcoming_races_nav.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.upcoming_races_nav.clicked.connect(lambda: self._set_active_page(2))
+        nav_layout.addWidget(self.upcoming_races_nav)
+
         for label in ("Championship", "Statistics"):
             button = QPushButton(label)
             button.setObjectName("NavInactive")
@@ -219,7 +224,10 @@ class MainWindow(QMainWindow):
         if page_index == 0:
             self._update_dashboard_race_cards()
 
-        self._sync_nav_buttons(0 if page_index == 0 else 1)
+        self._sync_nav_buttons(page_index if page_index in (0, 1, 2) else 1)
+
+    def _open_upcoming_races(self):
+        self._set_active_page(2)
 
     def _open_race_details(self, race):
         self.race_details_page.set_race(race)
@@ -240,13 +248,13 @@ class MainWindow(QMainWindow):
         self._sync_nav_buttons(1)
 
     def _sync_nav_buttons(self, active_page_index: int):
-        active_button = self.dashboard_nav if active_page_index == 0 else self.race_history_nav
-        inactive_button = self.race_history_nav if active_page_index == 0 else self.dashboard_nav
-
-        active_button.setObjectName("NavActive")
-        inactive_button.setObjectName("NavInactive")
-
-        for button in (active_button, inactive_button):
+        buttons = (
+            (self.dashboard_nav, 0),
+            (self.race_history_nav, 1),
+            (self.upcoming_races_nav, 2),
+        )
+        for button, page_index in buttons:
+            button.setObjectName("NavActive" if page_index == active_page_index else "NavInactive")
             button.style().unpolish(button)
             button.style().polish(button)
 
@@ -376,7 +384,8 @@ class MainWindow(QMainWindow):
         self._open_race_details(self.latest_race)
 
     def _next_daily_race_card(self) -> DashboardCard:
-        card = DashboardCard("Next Daily Race", "Scheduled placeholder")
+        card = ClickableDashboardCard("Next Daily Race", "Scheduled placeholder")
+        card.clicked.connect(self._open_upcoming_races)
         card.body.addWidget(MetricRow("Starts in", "42 minutes"))
         card.body.addWidget(MetricRow("Track", "Monza"))
         card.body.addStretch()
@@ -499,23 +508,6 @@ class MainWindow(QMainWindow):
         return card
 
 
-def _center_crop_source(pixmap: QPixmap, target_size: QSize) -> QRect:
-    if pixmap.isNull() or target_size.width() <= 0 or target_size.height() <= 0:
-        return QRect()
-
-    target_ratio = target_size.width() / target_size.height()
-    source_ratio = pixmap.width() / pixmap.height()
-
-    if source_ratio > target_ratio:
-        source_width = int(pixmap.height() * target_ratio)
-        source_x = (pixmap.width() - source_width) // 2
-        return QRect(source_x, 0, source_width, pixmap.height())
-
-    source_height = int(pixmap.width() / target_ratio)
-    source_y = (pixmap.height() - source_height) // 2
-    return QRect(0, source_y, pixmap.width(), source_height)
-
-
 def _display_value(value: str) -> str:
     return value if value and value != "-" else "—"
 
@@ -587,7 +579,7 @@ def _track_stat_key(race: RaceResult) -> tuple[str, str]:
     if not track or track == "-":
         return "", ""
 
-    prefix = _track_picture_prefix(track)
+    prefix = track_picture_prefix(track)
     key = prefix.casefold() if prefix else re.sub(r"[^a-z0-9]+", "", track.casefold())
     return key, track
 
@@ -720,48 +712,4 @@ def _random_track_picture(race: RaceResult | None) -> Path | None:
     if race is None:
         return None
 
-    prefix = _track_picture_prefix(race.track)
-    if not prefix:
-        return None
-
-    candidates = []
-    for index in (1, 2, 3):
-        pattern = f"{prefix}-picture-{index}.*"
-        candidates.extend(
-            path
-            for path in ASSETS_PICTURES_DIR.glob(pattern)
-            if path.suffix.casefold() in {".png", ".jpg", ".jpeg"}
-        )
-
-    return random.choice(candidates) if candidates else None
-
-
-def _track_picture_prefix(track: str) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", "", track.casefold())
-    if not normalized:
-        return ""
-
-    aliases = (
-        (("bahrain",), "Bahrain"),
-        (("barcelona", "circuitdebarcelona", "barca"), "Barca"),
-        (("lemans", "sarthe", "circuitdelasarthe", "circuitdes24heuresdumans"), "Sarthe"),
-        (("paulricard",), "PaulRicard"),
-        (("cota", "circuitoftheamericas"), "COTA"),
-        (("daytona",), "Daytona"),
-        (("fuji",), "Fuji"),
-        (("imola",), "Imola"),
-        (("interlagos",), "Interlagos"),
-        (("lusail",), "Lusail"),
-        (("roadatlanta",), "RoadAtlanta"),
-        (("monza",), "Monza"),
-        (("portimao", "portimao"), "Portimao"),
-        (("sebring",), "Sebring"),
-        (("silverstone",), "Silverstone"),
-        (("spafrancorchamps", "spa"), "Spa"),
-        (("longbeach",), "LongBeach"),
-        (("lagunaseca", "laguna"), "Laguna"),
-    )
-    for needles, prefix in aliases:
-        if any(needle in normalized for needle in needles):
-            return prefix
-    return ""
+    return random_track_picture(race.track)

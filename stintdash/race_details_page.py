@@ -1,5 +1,7 @@
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from pathlib import Path
+
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -10,7 +12,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QTableView,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from stintdash.lmu_results import DEFAULT_PLAYER_NAME
 from stintdash.race_data import DriverResult, RaceResult
+from stintdash.track_images import center_crop_source, random_track_picture
 from stintdash.widgets import DashboardCard
 
 
@@ -162,6 +164,46 @@ class RaceLeaderboardDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+class TrackPicturePanel(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._pixmap: QPixmap | None = None
+        self.setMinimumSize(330, 210)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    def set_image(self, image_path: Path | None):
+        if image_path is None:
+            self._pixmap = None
+        else:
+            pixmap = QPixmap(str(image_path))
+            self._pixmap = pixmap if not pixmap.isNull() else None
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        radius = 10
+        path = QPainterPath()
+        path.addRoundedRect(rect, radius, radius)
+
+        painter.setClipPath(path)
+        if self._pixmap:
+            painter.drawPixmap(rect, self._pixmap, center_crop_source(self._pixmap, rect.size()))
+        else:
+            painter.fillPath(path, QColor("#101827"))
+        painter.setClipping(False)
+
+        pen = QPen(QColor("#26384e"))
+        pen.setWidth(1)
+        painter.setPen(pen)
+        painter.drawPath(path)
+
+
 class RaceDetailsPage(QWidget):
     back_requested = Signal()
     driver_selected = Signal(object, object)
@@ -170,6 +212,8 @@ class RaceDetailsPage(QWidget):
         super().__init__()
         self.player_name = player_name
         self.current_race: RaceResult | None = None
+        self.track_picture_key: str | None = None
+        self.track_picture_path: Path | None = None
         self._hovered_row = -1
 
         root_layout = QVBoxLayout(self)
@@ -199,12 +243,16 @@ class RaceDetailsPage(QWidget):
     def set_race(self, race: RaceResult):
         self.current_race = race
         self.track_label.setText(race.track or "-")
-        self.track_name_label.setText(race.track or "-")
         self.class_label.setText(race.player_driver.car_class or "-")
         self.duration_label.setText(race.race_duration or "-")
         self.start_label.setText(race.start_position or "-")
         self.finish_label.setText(race.finish_position or "-")
         self.best_lap_label.setText(race.best_lap or "-")
+        image_key = _race_image_key(race)
+        if image_key != self.track_picture_key:
+            self.track_picture_key = image_key
+            self.track_picture_path = random_track_picture(race.track)
+        self.track_picture_panel.set_image(self.track_picture_path)
         self.leaderboard_model.set_race(race)
         self._resize_leaderboard()
         self.scroll_area.verticalScrollBar().setValue(0)
@@ -231,31 +279,10 @@ class RaceDetailsPage(QWidget):
         info = QWidget()
         info.setLayout(self._build_info_grid())
 
-        map_area = QWidget()
-        map_layout = QVBoxLayout(map_area)
-        map_layout.setContentsMargins(0, 0, 0, 0)
-        map_layout.setSpacing(12)
-
-        map_icon = QLabel()
-        map_icon.setObjectName("TrackMapIcon")
-        map_icon.setPixmap(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogHelpButton).pixmap(42, 42))
-        map_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.track_name_label = QLabel("-")
-        self.track_name_label.setObjectName("TrackMapName")
-        self.track_name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        coming_soon = QLabel("Track map coming soon")
-        coming_soon.setObjectName("MutedText")
-        coming_soon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        map_layout.addWidget(map_icon)
-        map_layout.addWidget(self.track_name_label)
-        map_layout.addWidget(coming_soon)
-        map_layout.addStretch()
+        self.track_picture_panel = TrackPicturePanel()
 
         top.addWidget(info, stretch=2)
-        top.addWidget(map_area, stretch=1)
+        top.addWidget(self.track_picture_panel, stretch=1)
         return top
 
     def _build_info_grid(self) -> QGridLayout:
@@ -383,6 +410,10 @@ def _is_finisher(driver: DriverResult) -> bool:
         return True
 
     return _float_or_none(driver.finish_time) is not None
+
+
+def _race_image_key(race: RaceResult) -> str:
+    return race.race_id or str(race.source_file)
 
 
 def _finish_status_label(driver: DriverResult) -> str:
